@@ -164,9 +164,13 @@ void CWeatherHistoryDlg::DoDataExchange(CDataExchange* pDX)
 void CWeatherHistoryDlg::InitListData(const CString& cur_city)
 {
     m_list_ctrl.DeleteAllItems();
-    const auto& history_weather{ g_data.HistoryWeatherMgr().GetHistoryWeather() };
-    auto weather_iter = history_weather.find(cur_city);
-    if (weather_iter == history_weather.end())
+    //在锁内复制历史数据，避免与后台刷新线程产生数据竞争
+    auto history_all{ [&]() {
+        std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
+        return g_data.HistoryWeatherMgr().GetHistoryWeather();
+    }() };
+    auto weather_iter = history_all.find(cur_city);
+    if (weather_iter == history_all.end())
         return;
 
     for (auto iter = weather_iter->second.rbegin(); iter != weather_iter->second.rend(); ++iter)
@@ -219,7 +223,11 @@ BOOL CWeatherHistoryDlg::OnInitDialog()
     m_min_size.cx = rect.Width();
     m_min_size.cy = rect.Height();
 
-    const auto& history_weather{ g_data.HistoryWeatherMgr().GetHistoryWeather() };
+    //在锁内复制历史数据，避免与后台刷新线程产生数据竞争
+    auto history_weather{ [&]() {
+        std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
+        return g_data.HistoryWeatherMgr().GetHistoryWeather();
+    }() };
     //初始化下拉框
     for (const auto& item : history_weather)
     {

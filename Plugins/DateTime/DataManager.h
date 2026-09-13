@@ -31,6 +31,8 @@ public:
 public:
     std::wstring m_cur_time;
     std::wstring m_cur_date;
+    CString m_sample_date_text;     //GetItemValueSampleText的返回值需要保持有效，因此保存在这里
+    CString m_sample_time_text;
     //SYSTEMTIME m_system_time;
     SettingData m_setting_data;
     CDataTimeFormatHelper m_format_helper;

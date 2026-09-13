@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include <string>
 #include <map>
+#include <atomic>
+#include <mutex>
 #include "resource.h"
 #include "ChapterParser.h"
 #include "BookmarkMgr.h"
@@ -63,6 +65,9 @@ public:
 
     void SaveReadPosition();
 
+    //把后台线程下载并解析好的文本换入共享数据(在UI线程中调用，避免线程竞争)
+    void ApplyPendingText();
+
     SettingData m_setting_data;
     int m_page_step{ 1 };
     bool m_boss_key_pressed{ false };
@@ -76,6 +81,12 @@ public:
 private:
     static UINT ThreadCallback(LPVOID dwUser);
 
+    //传给下载线程的参数(在堆上分配，由线程内部释放，避免static变量在线程运行中被改写)
+    struct ThreadParam
+    {
+        std::wstring url;
+    };
+
 private:
     unsigned __int64 m_file_last_modified{};    //打开文件的上次修改时间
 
@@ -88,5 +99,9 @@ private:
     std::wstring m_text_contents;
     CChapterParser m_chapter_parser{ m_text_contents };
     CBookmarkMgr m_bookmark_mgr;
-    bool m_is_thread_runing{};
+    std::atomic<bool> m_is_thread_runing{ false };
+    //后台线程只把结果写入下面两个变量，由UI线程通过ApplyPendingText换入m_text_contents，避免数据竞争
+    std::mutex m_data_mutex;
+    std::wstring m_pending_text;
+    bool m_has_pending_text{ false };
 };

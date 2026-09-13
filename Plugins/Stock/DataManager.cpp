@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "DataManager.h"
 #include "Common.h"
+#include <Stock.h>
 #include <vector>
 #include <sstream>
 #include "../utilities/IniHelper.h"
@@ -31,6 +32,8 @@ CDataManager &CDataManager::Instance()
 
 void CDataManager::ResetText()
 {
+    //清空实时数据会修改StockInfo，与UI线程并发，需要加锁
+    std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
     stockMarket.ClearRealtimeData();
 }
 
@@ -163,9 +166,7 @@ std::shared_ptr<StockData> CDataManager::GetStockData(const std::wstring &code)
 static double generateRandomDouble()
 {
     srand(time(nullptr)); // 设置随机种子
-    double random = (double)rand() / RAND_MAX;
-    std::cout << std::fixed << std::setprecision(16);
-    return random;
+    return (double)rand() / RAND_MAX;
 }
 
 void CDataManager::RequestRealtimeData()
@@ -191,6 +192,8 @@ void CDataManager::RequestRealtimeData()
 
 void CDataManager::RequestTimelineData(std::wstring stock_id)
 {
+    CInternetSession *session = nullptr;
+    CHttpFile *pFile = nullptr;
     try
     {
         TRACE(L"RequestTimelineData...\n");
@@ -203,16 +206,14 @@ void CDataManager::RequestTimelineData(std::wstring stock_id)
         params.push_back(L"dpc=1");
 
         url += CCommon::vectorJoinString(params, L"&");
-        // CCommon::WriteLog(url.c_str(), g_data.m_log_path.c_str());
 
-        // CString strHeaders = L"Referer: https://finance.sina.com.cn/realstock/company/" + m_stock_id + L"/nc.shtml";
         std::wstring strHeaders{L"Referer: https://finance.sina.com.cn/realstock/company/"};
         strHeaders += stock_id;
         strHeaders += L"/nc.shtml";
         CString headers = strHeaders.c_str();
 
-        CInternetSession *session = new CInternetSession(WEB_USERAGENT);
-        CHttpFile *pFile = (CHttpFile *)session->OpenURL(url.c_str(), 1, INTERNET_FLAG_TRANSFER_ASCII, headers, headers.GetLength());
+        session = new CInternetSession(WEB_USERAGENT);
+        pFile = (CHttpFile *)session->OpenURL(url.c_str(), 1, INTERNET_FLAG_TRANSFER_ASCII, headers, headers.GetLength());
 
         DWORD dwStatusCode;
         pFile->QueryInfoStatusCode(dwStatusCode);
@@ -230,15 +231,35 @@ void CDataManager::RequestTimelineData(std::wstring stock_id)
 
             stockMarket.LoadTimelineDataByJson(stock_id, &strData);
         }
-
-        // 清理资源
-        pFile->Close();
-        delete pFile;
-        session->Close();
     }
     catch (CInternetException *e)
     {
         e->Delete();
         stockMarket.LoadTimelineDataByJson(stock_id, NULL);
+    }
+    //所有路径统一清理网络资源，避免泄漏(原先成功路径和异常路径都有泄漏)
+    if (pFile != nullptr)
+    {
+        try
+        {
+            pFile->Close();
+        }
+        catch (CInternetException *e)
+        {
+            e->Delete();
+        }
+        delete pFile;
+    }
+    if (session != nullptr)
+    {
+        try
+        {
+            session->Close();
+        }
+        catch (CInternetException *e)
+        {
+            e->Delete();
+        }
+        delete session;
     }
 }

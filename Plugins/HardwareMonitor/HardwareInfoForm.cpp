@@ -193,12 +193,16 @@ namespace HardwareMonitor
         if (e->Node == treeView1->SelectedNode)
         {
             // 绘制选中背景
-            e->Graphics->FillRectangle(gcnew SolidBrush(SystemColors::Highlight), bounds);
+            SolidBrush^ highlightBrush = gcnew SolidBrush(SystemColors::Highlight);
+            e->Graphics->FillRectangle(highlightBrush, bounds);
+            delete highlightBrush;  //及时释放，避免依赖GC终结器
             textColor = SystemColors::HighlightText;
         }
         else
         {
-            e->Graphics->FillRectangle(gcnew SolidBrush(SystemColors::Window), bounds);
+            SolidBrush^ windowBrush = gcnew SolidBrush(SystemColors::Window);
+            e->Graphics->FillRectangle(windowBrush, bounds);
+            delete windowBrush;     //及时释放，避免依赖GC终结器
             //判断当前项是否已添加到监控
             String^ identifyer{};
             if (sensorInfo != nullptr)

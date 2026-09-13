@@ -19,6 +19,7 @@ namespace HardwareMonitor
         //获取当前屏幕DPI值
         Graphics^ graphics = Graphics::FromHwnd(IntPtr::Zero);
         m_dpi = static_cast<int>(graphics->DpiX);
+        delete graphics;    //释放FromHwnd创建的Graphics对象
     }
 
     CHardwareMonitor::~CHardwareMonitor()
@@ -69,6 +70,7 @@ namespace HardwareMonitor
                 item_info.identifyer = identifyer;
                 item_info.unit = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorTypeDefaultUnit(sensor->SensorType));
                 m_settings.items_info.push_back(item_info);
+                RebuildDisplayItems();
                 return true;
             }
         }
@@ -94,9 +96,41 @@ namespace HardwareMonitor
         {
             auto iter = m_settings.items_info.begin() + index;
             m_settings.items_info.erase(iter);
+            RebuildDisplayItems();
             return true;
         }
         return false;
+    }
+
+    CHardwareMonitorItem* CHardwareMonitor::EnsureDisplayItem(const ItemInfo& item_info)
+    {
+        //传感器不存在时(硬件被禁用或已拔出)不创建显示项目
+        ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info.identifyer.c_str()));
+        if (sensor == nullptr)
+            return nullptr;
+        //对象池中已存在相同identifier的对象时直接复用，保证指针稳定
+        for (CHardwareMonitorItem* item : m_item_pool)
+        {
+            if (item->GetIdentifier() == item_info.identifyer)
+                return item;
+        }
+        std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorDisplayName(sensor));
+        std::wstring lable_text = Common::StringToStdWstring(Common::GetTranslatedString(sensor->Name));
+        m_item_names[item_info.identifyer] = item_name;
+        CHardwareMonitorItem* item = new CHardwareMonitorItem(item_info.identifyer, item_name, lable_text);
+        m_item_pool.push_back(item);
+        return item;
+    }
+
+    void CHardwareMonitor::RebuildDisplayItems()
+    {
+        m_items.clear();
+        for (const auto& item_info : m_settings.items_info)
+        {
+            CHardwareMonitorItem* item = EnsureDisplayItem(item_info);
+            if (item != nullptr)
+                m_items.push_back(item);
+        }
     }
 
     std::wstring CHardwareMonitor::GetItemName(const std::wstring& identifier)
@@ -156,14 +190,6 @@ namespace HardwareMonitor
             item_info.show_notify = ini.GetBool(app_name.c_str(), L"show_notify", false);
             item_info.notify_value = ini.GetDouble(app_name.c_str(), L"notify_value");
             m_settings.items_info.push_back(item_info);
-            ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info.identifyer.c_str()));
-            if (sensor != nullptr)
-            {
-                std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorDisplayName(sensor));
-                std::wstring lable_text = Common::StringToStdWstring(Common::GetTranslatedString(sensor->Name));
-                m_item_names[item_info.identifyer] = item_name;
-                m_items.emplace_back(item_info.identifyer, item_name, lable_text);
-            }
         }
         m_settings.hardware_info_auto_refresh = ini.GetBool(L"config", L"hardware_info_auto_refresh");
         m_settings.show_mouse_tooltip = ini.GetBool(L"config", L"show_mouse_tooltip", true);
@@ -176,16 +202,17 @@ namespace HardwareMonitor
             for each (auto sensor in default_sensors)
             {
                 std::wstring identifyer = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorIdentifyer(sensor));
-                std::wstring item_name = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorDisplayName(sensor));
-                std::wstring lable_text = Common::StringToStdWstring(Common::GetTranslatedString(sensor->Name));
-                m_item_names[identifyer] = item_name;
-                m_items.emplace_back(identifyer, item_name, lable_text);
+                if (IsDisplayItemExist(identifyer))
+                    continue;
                 ItemInfo item_info;
                 item_info.identifyer = identifyer;
                 item_info.unit = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorTypeDefaultUnit(sensor->SensorType));
                 m_settings.items_info.push_back(item_info);
             }
         }
+
+        //根据配置重建显示项目列表(条目对象保存在对象池中，宿主已缓存的指针不会失效)
+        RebuildDisplayItems();
 
         //载入树控件的展开折叠状态
         std::vector<std::wstring> collapse_nodes;
@@ -260,7 +287,7 @@ namespace HardwareMonitor
     {
         if (index >= 0 && index < static_cast<int>(m_items.size()))
         {
-            return &m_items[index];
+            return m_items[index];
         }
         return nullptr;
     }
@@ -278,9 +305,9 @@ namespace HardwareMonitor
             if (MonitorGlobal::Instance()->setttings_form != nullptr)
                 MonitorGlobal::Instance()->setttings_form->UpdateItemsValue();
             //更新所有显示项目
-            for (auto& item : m_items)
+            for (CHardwareMonitorItem* item : m_items)
             {
-                item.UpdateValue();
+                item->UpdateValue();
             }
         }
         catch (System::Exception^)
@@ -291,7 +318,6 @@ namespace HardwareMonitor
 
     const wchar_t* CHardwareMonitor::GetInfo(PluginInfoIndex index)
     {
-        static std::wstring str;
         switch (index)
         {
         case TMI_NAME:
@@ -321,12 +347,12 @@ namespace HardwareMonitor
             tooltip_info.clear();
             for (size_t i{}; i < m_items.size(); i++)
             {
-                const auto& item = m_items[i];
+                CHardwareMonitorItem* item = m_items[i];
                 if (i > 0)
                     tooltip_info += L"\r\n";
-                tooltip_info += item.GetItemName();
+                tooltip_info += item->GetItemName();
                 tooltip_info += L": ";
-                tooltip_info += item.GetItemValueText();
+                tooltip_info += item->GetItemValueText();
             }
             return tooltip_info.c_str();
         }
@@ -342,12 +368,12 @@ namespace HardwareMonitor
         {
             SettingsForm^ form = gcnew SettingsForm();
             MonitorGlobal::Instance()->setttings_form = form;
-            if (form->ShowDialog() == DialogResult::OK)
-            {
-                MonitorGlobal::Instance()->setttings_form = nullptr;
-                SaveConfig();
-                return ITMPlugin::OR_OPTION_CHANGED;
-            }
+            //设置窗体中的修改都是即时生效的(没有单独的“确定”按钮)，
+            //因此无论通过何种方式关闭窗体，都应通知主程序选项可能已更改
+            form->ShowDialog();
+            MonitorGlobal::Instance()->setttings_form = nullptr;
+            SaveConfig();
+            return ITMPlugin::OR_OPTION_CHANGED;
         }
         catch (System::Exception^ e)
         {
@@ -393,7 +419,11 @@ namespace HardwareMonitor
 
     void* CHardwareMonitor::GetPluginIcon()
     {
-        return MonitorGlobal::Instance()->GetAppIcon()->Handle.ToPointer();
+        //图标资源加载失败时GetAppIcon可能返回nullptr，此时不能解引用
+        Icon^ icon = MonitorGlobal::Instance()->GetAppIcon();
+        if (icon == nullptr)
+            return nullptr;
+        return icon->Handle.ToPointer();
     }
 
     int CHardwareMonitor::GetCommandCount()

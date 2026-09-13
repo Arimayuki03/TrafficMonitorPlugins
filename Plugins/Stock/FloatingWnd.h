@@ -31,8 +31,7 @@ private:
 
     CTransparentWnd m_CTransparentWnd;
     std::wstring m_stock_id;
-    bool m_is_thread_running{};
-    volatile BOOL m_isDestroying; // 添加销毁标志
+    volatile BOOL m_isDestroying; // 销毁标志，网络线程启动前检查，避免访问已销毁的窗口对象
     CFont *m_pfont{};
     CString loading_state_txt;
 

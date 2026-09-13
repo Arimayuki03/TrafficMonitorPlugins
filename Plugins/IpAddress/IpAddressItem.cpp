@@ -19,16 +19,14 @@ const wchar_t* CIpAddressItem::GetItemLableText() const
 
 const wchar_t* CIpAddressItem::GetItemValueText() const
 {
-    static std::wstring ipv4_addr;
-    if (g_data.GetLocalIPv4Address(ipv4_addr))
-        return ipv4_addr.c_str();
-    return L"";
+    g_data.GetCurrentIPv4Address();
+    return g_data.m_current_ipv4.c_str();
 }
 
 const wchar_t* CIpAddressItem::GetItemValueSampleText() const
 {
-    static std::wstring ipv4_addr;
-    if (g_data.GetLocalIPv4Address(ipv4_addr))
-        return ipv4_addr.c_str();
+    g_data.GetCurrentIPv4Address();
+    if (!g_data.m_current_ipv4.empty())
+        return g_data.m_current_ipv4.c_str();
     return L"000.000.000.000";
 }

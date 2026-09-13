@@ -20,9 +20,8 @@ namespace HardwareMonitor
 
     const wchar_t* CHardwareMonitorItem::GetItemId() const
     {
-        static std::wstring item_id;
-        item_id = L"7KrUeFVl_" + identifier;
-        return item_id.c_str();
+        m_item_id_cache = L"7KrUeFVl_" + identifier;
+        return m_item_id_cache.c_str();
     }
 
     const wchar_t* CHardwareMonitorItem::GetItemLableText() const
@@ -40,7 +39,7 @@ namespace HardwareMonitor
 
     const wchar_t* CHardwareMonitorItem::GetItemValueSampleText() const
     {
-        static std::wstring sample_text;
+        std::wstring& sample_text{ m_sample_text_cache };
         const ItemInfo& item_info{ CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(identifier) };
         if (item_info.specify_value_width)
         {

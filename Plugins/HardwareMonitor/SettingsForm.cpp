@@ -80,9 +80,11 @@ namespace HardwareMonitor
     {
         //清除列表
         monitorItemListBox->Items->Clear();
+        m_list_to_info_index->Clear();
         EnableControls();
 
         //填充数据
+        int info_index = 0;
         for (const auto& item : CHardwareMonitor::GetInstance()->m_settings.items_info)
         {
             String^ item_name = gcnew String(CHardwareMonitor::GetInstance()->GetItemName(item.identifyer).c_str());
@@ -105,8 +107,11 @@ namespace HardwareMonitor
                     if (resName->Length > 0)
                         listItem->icon = MonitorGlobal::Instance()->GetIcon(resName);
                     monitorItemListBox->Items->Add(listItem);
+                    //记录ListBox索引与items_info索引的对应关系
+                    m_list_to_info_index->Add(info_index);
                 }
             }
+            info_index++;
         }
     }
 
@@ -266,7 +271,9 @@ namespace HardwareMonitor
             backColor = SystemColors::Window;
         }
         // 绘制背景
-        e->Graphics->FillRectangle(gcnew SolidBrush(backColor), e->Bounds);
+        SolidBrush^ backBrush = gcnew SolidBrush(backColor);
+        e->Graphics->FillRectangle(backBrush, e->Bounds);
+        delete backBrush;   //及时释放，避免依赖GC终结器
 
         //绘制图标
         System::Drawing::Icon^ icon = listItem->icon;
@@ -297,19 +304,22 @@ namespace HardwareMonitor
     {
         int selectedIndex = monitorItemListBox->SelectedIndex;
         // 删除ListBox中的选中项
-        if (selectedIndex >= 0)
+        if (selectedIndex >= 0 && selectedIndex < m_list_to_info_index->Count)
         {
             // 弹出MessageBox询问用户是否要删除
             System::Windows::Forms::DialogResult result = System::Windows::Forms::MessageBox::Show(
                 MonitorGlobal::Instance()->GetString(L"RemoveMonitorItemInquery"),
                 MonitorGlobal::Instance()->GetString(L"PluginName"),
-                System::Windows::Forms::MessageBoxButtons::OKCancel, 
+                System::Windows::Forms::MessageBoxButtons::OKCancel,
                 System::Windows::Forms::MessageBoxIcon::Question);
             // 如果用户点击“确定”，则删除选中项
             if (result == System::Windows::Forms::DialogResult::OK)
             {
-                monitorItemListBox->Items->RemoveAt(selectedIndex);
-                CHardwareMonitor::GetInstance()->RemoveDisplayItem(selectedIndex);
+                //ListBox索引与items_info索引不同(部分配置项不会显示在列表中)，必须通过映射表转换
+                int info_index = m_list_to_info_index[selectedIndex];
+                CHardwareMonitor::GetInstance()->RemoveDisplayItem(info_index);
+                //重新填充列表并重建索引映射
+                UpdateItemList();
             }
         }
     }
@@ -358,15 +368,26 @@ namespace HardwareMonitor
         if (IsSelectionValid())
         {
             int index = monitorItemListBox->SelectedIndex;
-            auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
-            if (index > 0 && index < static_cast<int>(items_info.size()))
+            if (index > 0 && index < m_list_to_info_index->Count)
             {
-                //交换列表中当前项和前一项的文本
-                Common::SwapListBoxItems(monitorItemListBox, index, index - 1);
-                //交换ItemInfo
-                std::swap(items_info[index], items_info[index - 1]);
-                //更改选中项
-                monitorItemListBox->SelectedIndex--;
+                //ListBox索引与items_info索引不同(部分配置项不会显示在列表中)，必须通过映射表转换
+                int info_index = m_list_to_info_index[index];
+                int info_index2 = m_list_to_info_index[index - 1];
+                auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
+                if (info_index > 0 && info_index < static_cast<int>(items_info.size())
+                    && info_index2 > 0 && info_index2 < static_cast<int>(items_info.size()))
+                {
+                    //交换列表中当前项和前一项的文本
+                    Common::SwapListBoxItems(monitorItemListBox, index, index - 1);
+                    //交换ItemInfo
+                    std::swap(items_info[info_index], items_info[info_index2]);
+                    //同步交换索引映射
+                    int tmp = m_list_to_info_index[index];
+                    m_list_to_info_index[index] = m_list_to_info_index[index - 1];
+                    m_list_to_info_index[index - 1] = tmp;
+                    //更改选中项
+                    monitorItemListBox->SelectedIndex--;
+                }
             }
         }
     }
@@ -376,15 +397,26 @@ namespace HardwareMonitor
         if (IsSelectionValid())
         {
             int index = monitorItemListBox->SelectedIndex;
-            auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
-            if (index >= 0 && index < static_cast<int>(items_info.size()) - 1)
+            if (index >= 0 && index < m_list_to_info_index->Count - 1)
             {
-                //交换列表中当前项和后一项的文本
-                Common::SwapListBoxItems(monitorItemListBox, index, index + 1);
-                //交换ItemInfo
-                std::swap(items_info[index], items_info[index + 1]);
-                //更改选中项
-                monitorItemListBox->SelectedIndex++;
+                //ListBox索引与items_info索引不同(部分配置项不会显示在列表中)，必须通过映射表转换
+                int info_index = m_list_to_info_index[index];
+                int info_index2 = m_list_to_info_index[index + 1];
+                auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
+                if (info_index >= 0 && info_index < static_cast<int>(items_info.size()) - 1
+                    && info_index2 >= 0 && info_index2 < static_cast<int>(items_info.size()) - 1)
+                {
+                    //交换列表中当前项和后一项的文本
+                    Common::SwapListBoxItems(monitorItemListBox, index, index + 1);
+                    //交换ItemInfo
+                    std::swap(items_info[info_index], items_info[info_index2]);
+                    //同步交换索引映射
+                    int tmp = m_list_to_info_index[index];
+                    m_list_to_info_index[index] = m_list_to_info_index[index + 1];
+                    m_list_to_info_index[index + 1] = tmp;
+                    //更改选中项
+                    monitorItemListBox->SelectedIndex++;
+                }
             }
         }
     }

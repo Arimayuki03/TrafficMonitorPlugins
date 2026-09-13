@@ -219,7 +219,8 @@ void CFloatingWnd::OnPaint()
     STOCK::StockInfo realtimeData;
     std::vector<STOCK::TimelinePoint> timelinePoint;
     {
-        std::lock_guard<std::mutex> lock(Stock::Instance().m_stockDataMutex);
+        //在锁内复制绘制所需的数据，避免与后台刷新线程产生数据竞争
+        std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
         auto stockData = g_data.GetStockData(m_stock_id);
         realtimeData = stockData->info;
         timelinePoint = stockData->getTimelineData()->data;
@@ -240,8 +241,12 @@ void CFloatingWnd::OnPaint()
         upperLimitTxtRect.right = upperLimitTxtRect.left + memDC.GetTextExtent(upperLimitTxt).cx;
         memDC.DrawText(upperLimitTxt, upperLimitTxtRect, DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
 
+        //prevClosePrice为0时避免除以0显示inf
         CString upperLimitRateTxt;
-        upperLimitRateTxt.Format(_T("%.2f%%"), priceLimit * 100.0 / realtimeData.prevClosePrice);
+        if (realtimeData.prevClosePrice > 0)
+            upperLimitRateTxt.Format(_T("%.2f%%"), priceLimit * 100.0 / realtimeData.prevClosePrice);
+        else
+            upperLimitRateTxt = _T("--");
         CRect upperLimitRateTxtRect{rect};
         upperLimitRateTxtRect.left = w - (upperLimitRateTxtRect.left + memDC.GetTextExtent(upperLimitRateTxt).cx);
         memDC.DrawText(upperLimitRateTxt, upperLimitRateTxtRect, DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
@@ -255,7 +260,10 @@ void CFloatingWnd::OnPaint()
         memDC.DrawText(lowerLimitTxt, lowerLimitTxtRect, DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
 
         CString lowerLimitRateTxt;
-        lowerLimitRateTxt.Format(_T("-%.2f%%"), priceLimit * 100.0 / realtimeData.prevClosePrice);
+        if (realtimeData.prevClosePrice > 0)
+            lowerLimitRateTxt.Format(_T("-%.2f%%"), priceLimit * 100.0 / realtimeData.prevClosePrice);
+        else
+            lowerLimitRateTxt = _T("--");
         CRect lowerLimitRateTxtRect{rect};
         lowerLimitRateTxtRect.left = w - (lowerLimitRateTxtRect.left + memDC.GetTextExtent(lowerLimitRateTxt).cx);
         memDC.DrawText(lowerLimitRateTxt, lowerLimitRateTxtRect, DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
@@ -310,10 +318,16 @@ void CFloatingWnd::OnLButtonDown(UINT nFlags, CPoint point)
 
 void CFloatingWnd::RequestData()
 {
-    if (!m_is_thread_running)
+    //下载线程的运行标志保存在Stock单例中(而不是窗口对象上)，
+    //这样即使窗口在请求期间被销毁，也不会在线程结束时访问已释放的对象
+    bool expected = false;
+    if (Stock::Instance().m_timeline_thread_running.compare_exchange_strong(expected, true))
     {
         loading_state_txt = g_data.StringRes(IDS_LOADING).GetString();
-        AfxBeginThread(NetworkThreadProc, this);
+        if (AfxBeginThread(NetworkThreadProc, this) == NULL)
+        {
+            Stock::Instance().m_timeline_thread_running = false;
+        }
     }
 }
 
@@ -322,14 +336,24 @@ UINT CFloatingWnd::NetworkThreadProc(LPVOID pParam)
     CFloatingWnd *pFW = (CFloatingWnd *)pParam;
 
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    CFlagLocker flag_locker(pFW->m_is_thread_running);
 
-    if (pFW->m_stock_id.empty())
+    //复制股票代码到局部变量。窗口可能在网络请求期间被销毁，此后不能再访问pFW的任何成员
+    std::wstring stock_id;
     {
-        return 0;
+        std::lock_guard<std::mutex> lock(Stock::Instance().m_wndMutex);
+        if (pFW->m_isDestroying)
+        {
+            Stock::Instance().m_timeline_thread_running = false;
+            return 0;
+        }
+        stock_id = pFW->m_stock_id;
     }
 
-    g_data.RequestTimelineData(pFW->m_stock_id);
+    if (!stock_id.empty())
+    {
+        g_data.RequestTimelineData(stock_id);
+    }
 
+    Stock::Instance().m_timeline_thread_running = false;
     return 0;
 }

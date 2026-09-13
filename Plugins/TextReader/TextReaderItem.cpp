@@ -138,10 +138,12 @@ int CTextReaderItem::OnKeboardEvent(int key, bool ctrl, bool shift, bool alt, vo
     else if (key == VK_DOWN)
     {
         g_data.PageDown();
+        return 1;
     }
     else if (key == VK_SPACE)
     {
         g_data.m_boss_key_pressed = !g_data.m_boss_key_pressed;
+        return 1;
     }
     return 0;
 }

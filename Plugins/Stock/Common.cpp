@@ -2,6 +2,7 @@
 #include "Common.h"
 #include <afxinet.h>    //用于支持使用网络相关的类
 #include <sstream>
+#include <algorithm>
 #include "DataManager.h"
 
 std::wstring CCommon::StrToUnicode(const char* str, bool utf8)
@@ -50,13 +51,17 @@ bool CCommon::GetURL(const std::wstring& url, std::string& result, bool utf8, LP
         pfile->QueryInfoStatusCode(dwStatusCode);
         if (dwStatusCode == HTTP_STATUS_OK)
         {
-            CString content;
-            CString data;
-            while (pfile->ReadString(data))
+            //按原始字节读取响应体。不能把Unicode构建的CString按char*重解释（见修复文档FIX-003）
+            result.clear();
+            char buff[4096];
+            UINT read_count = 0;
+            while ((read_count = pfile->Read(buff, sizeof(buff))) > 0)
             {
-                content += data;
+                result.append(buff, read_count);
             }
-            result = (const char*)content.GetString();
+            //与原按行读取的行为保持一致：去掉换行符
+            result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
+            result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
             succeed = true;
         }
         pfile->Close();

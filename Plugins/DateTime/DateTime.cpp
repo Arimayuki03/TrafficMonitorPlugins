@@ -38,15 +38,16 @@ void CDateTime::DataRequired()
 const wchar_t* CDateTime::GetInfo(PluginInfoIndex index)
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    static CString str;
+    //每个信息索引使用独立的静态缓冲，避免后一次调用改写前一次返回的字符串内容
+    static CString str_name, str_description;
     switch (index)
     {
     case TMI_NAME:
-        str.LoadString(IDS_PLUGIN_NAME);
-        return str.GetString();
+        str_name.LoadString(IDS_PLUGIN_NAME);
+        return str_name.GetString();
     case TMI_DESCRIPTION:
-        str.LoadString(IDS_PLUGIN_DESCRIPTION);
-        return str.GetString();
+        str_description.LoadString(IDS_PLUGIN_DESCRIPTION);
+        return str_description.GetString();
     case TMI_AUTHOR:
         return L"zhongyang219";
     case TMI_COPYRIGHT:

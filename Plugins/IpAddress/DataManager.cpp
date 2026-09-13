@@ -19,6 +19,12 @@ CDataManager::CDataManager()
 CDataManager::~CDataManager()
 {
     SaveConfig();
+    //释放缓存的图标
+    for (const auto& icon : m_icons)
+    {
+        if (icon.second != nullptr)
+            DestroyIcon(icon.second);
+    }
 }
 
 CDataManager& CDataManager::Instance()
@@ -110,7 +116,9 @@ HICON CDataManager::GetIcon(UINT id)
     {
         AFX_MANAGE_STATE(AfxGetStaticModuleState());
         HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(id), IMAGE_ICON, DPI(16), DPI(16), 0);
-        m_icons[id] = hIcon;
+        //加载失败时不缓存，允许下次重试
+        if (hIcon != nullptr)
+            m_icons[id] = hIcon;
         return hIcon;
     }
 }
@@ -131,6 +139,13 @@ bool CDataManager::GetLocalIPv4Address(std::wstring& ipv4address)
         }
     }
     return false;
+}
+
+std::wstring CDataManager::GetCurrentIPv4Address()
+{
+    m_current_ipv4.clear();
+    GetLocalIPv4Address(m_current_ipv4);
+    return m_current_ipv4;
 }
 
 const std::vector<NetWorkConection>& CDataManager::GetAllConnections() const

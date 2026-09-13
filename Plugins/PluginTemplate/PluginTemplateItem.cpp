@@ -10,22 +10,22 @@ const wchar_t* CPluginTemplateItem::GetItemName() const
 const wchar_t* CPluginTemplateItem::GetItemId() const
 {
 	//TODO: 在此返回插件的唯一ID，建议只包含字母和数字
-    return L"";
+    return L"TemplateItem";
 }
 
 const wchar_t* CPluginTemplateItem::GetItemLableText() const
 {
-    return L"";
+    return L"TemplateItem";
 }
 
 const wchar_t* CPluginTemplateItem::GetItemValueText() const
 {
-    return L"";
+    return L"TemplateItem";
 }
 
 const wchar_t* CPluginTemplateItem::GetItemValueSampleText() const
 {
-    return L"";
+    return L"TemplateItem";
 }
 
 bool CPluginTemplateItem::IsCustomDraw() const

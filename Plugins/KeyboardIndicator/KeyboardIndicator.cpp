@@ -70,7 +70,6 @@ ITMPlugin::OptionReturn CKeyboardIndicator::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CKeyboardIndicator::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:

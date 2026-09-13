@@ -2,6 +2,8 @@
 #include "PluginInterface.h"
 #include "WeatherItem.h"
 #include <string>
+#include <atomic>
+#include <mutex>
 #include "OptionsDlg.h"
 
 class CWeather : public ITMPlugin
@@ -30,7 +32,14 @@ public:
 
     void Init();
     static void ParseWeatherInfo(WeatherInfo& weather_info, yyjson_val* forecast);
-    const CString& GetCurCity();
+    CString GetCurCity();
+
+    //保护天气数据的互斥量(后台解析线程写、UI线程读)。由于锁内可能再次加锁，使用recursive_mutex
+    std::recursive_mutex m_data_mutex;
+
+    //选项设置对话框的窗口句柄。对话框在OnInitDialog/OnDestroy中注册/注销，
+    //后台线程只向它PostMessage，不直接调用对话框的成员函数
+    HWND m_h_option_dlg{};
 
 private:
     static UINT ThreadCallback(LPVOID dwUser);
@@ -40,10 +49,10 @@ private:
 private:
     static CWeather m_instance;
     CWeatherItem m_item;
-    bool m_is_thread_runing{};
+    std::atomic<bool> m_is_thread_runing{ false };
     std::wstring m_tooltop_info;
-    COptionsDlg* m_option_dlg{};      //保存选项设置对话框的句柄
-    unsigned __int64 m_last_request_time{}; //上次请求天气的时间
+    std::atomic<unsigned __int64> m_last_request_time{ 0 }; //上次请求天气的时间
+    std::atomic<bool> m_update_in_progress{ false };        //是否正在更新天气(用于在UI线程中刷新菜单/按钮状态)
     CMenu m_menu;
     CString m_cur_city;
 };

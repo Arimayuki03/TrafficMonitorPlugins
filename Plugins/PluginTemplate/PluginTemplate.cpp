@@ -99,7 +99,7 @@ void* CPluginTemplate::GetPluginIcon()
 void CPluginTemplate::LoadConfig(const std::wstring& config_dir)
 {
     //TODO: 更改配置文件的文件名
-    m_config_path = config_dir + L"KeyboardIndicator.ini";
+    m_config_path = config_dir + L"PluginTemplate.ini";
     //TODO: 在此添加载入配置的代码
 }
 

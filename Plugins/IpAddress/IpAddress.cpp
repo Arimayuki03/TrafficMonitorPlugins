@@ -33,7 +33,18 @@ const wchar_t* CIpAddress::GetTooltipInfo()
 
 void CIpAddress::DataRequired()
 {
-    //TODO: 在此添加获取监控数据的代码
+    //每隔10秒自动刷新一次网络连接信息，否则网络切换后任务栏会一直显示旧IP
+    DWORD tick = GetTickCount();
+    if (m_last_refresh_tick == 0 || tick - m_last_refresh_tick >= 10000)
+    {
+        m_last_refresh_tick = tick;
+        g_data.UpdateConnections();
+        //生成鼠标提示信息
+        std::wstring ip = g_data.GetCurrentIPv4Address();
+        m_tooltip_info = g_data.StringRes(IDS_PLUGIN_ITEM_NAME).GetString();
+        m_tooltip_info += L": ";
+        m_tooltip_info += ip.empty() ? L"N/A" : ip;
+    }
 }
 
 ITMPlugin::OptionReturn CIpAddress::ShowOptionsDialog(void* hParent)
@@ -53,7 +64,6 @@ ITMPlugin::OptionReturn CIpAddress::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CIpAddress::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:

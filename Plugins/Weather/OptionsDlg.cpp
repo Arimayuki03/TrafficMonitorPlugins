@@ -70,6 +70,9 @@ BEGIN_MESSAGE_MAP(COptionsDlg, CDialog)
     ON_BN_CLICKED(IDC_AUTO_LOCATE_CHECK, &COptionsDlg::OnBnClickedAutoLocateCheck)
     ON_NOTIFY(NM_CLICK, IDC_HELP_SYSLINK, &COptionsDlg::OnNMClickHelpSyslink)
     ON_WM_GETMINMAXINFO()
+    ON_WM_DESTROY()
+    ON_MESSAGE(WM_WEATHER_AUTO_LOCATE_FINISHED, &COptionsDlg::OnWeatherAutoLocateFinished)
+    ON_MESSAGE(WM_WEATHER_UPDATE_STATE_CHANGED, &COptionsDlg::OnWeatherUpdateStateChanged)
 END_MESSAGE_MAP()
 
 
@@ -82,6 +85,10 @@ BOOL COptionsDlg::OnInitDialog()
 
     // TODO:  在此添加额外的初始化
     SetIcon(g_data.GetIcon(IDI_WEATHER), FALSE);
+
+    //向天气插件注册本对话框的窗口句柄，后台线程通过PostMessage与本对话框通信，
+    //不能跨线程直接调用对话框的成员函数
+    CWeather::Instance().m_h_option_dlg = GetSafeHwnd();
 
     //获取初始时窗口的大小
     CRect rect;
@@ -112,6 +119,28 @@ BOOL COptionsDlg::OnInitDialog()
 
     return TRUE;  // return TRUE unless you set the focus to a control
                   // 异常: OCX 属性页应返回 FALSE
+}
+
+
+void COptionsDlg::OnDestroy()
+{
+    //对话框销毁时注销窗口句柄
+    CWeather::Instance().m_h_option_dlg = nullptr;
+    CDialog::OnDestroy();
+}
+
+LRESULT COptionsDlg::OnWeatherAutoLocateFinished(WPARAM wParam, LPARAM lParam)
+{
+    //后台线程自动定位完成，刷新定位结果显示
+    UpdateAutoLocteResult();
+    return 0;
+}
+
+LRESULT COptionsDlg::OnWeatherUpdateStateChanged(WPARAM wParam, LPARAM lParam)
+{
+    //后台线程通知“更新天气”按钮的可用状态(wParam: TRUE可用/FALSE禁用)
+    EnableUpdateBtn(wParam != FALSE);
+    return 0;
 }
 
 

@@ -13,35 +13,24 @@ namespace utilities
         //获取文件长度
         file.seekg(0, file.end);
         size_t length = file.tellg();
+        if (length == 0)
+            return false;
         file.seekg(0, file.beg);
 
         char* buff = new char[length];
         file.read(buff, length);
+        auto read_length = file.gcount();
         file.close();
 
-        contents_buff.assign(buff, length);
+        if (read_length <= 0)
+        {
+            delete[] buff;
+            return false;
+        }
+        contents_buff.assign(buff, read_length);
         delete[] buff;
 
         return true;
-    }
-
-
-    const char* CCommon::GetFileContent(const wchar_t* file_path, size_t& length)
-    {
-        std::ifstream file{ file_path, std::ios::binary };
-        length = 0;
-        if (file.fail())
-            return nullptr;
-        //获取文件长度
-        file.seekg(0, file.end);
-        length = file.tellg();
-        file.seekg(0, file.beg);
-
-        char* buff = new char[length];
-        file.read(buff, length);
-        file.close();
-
-        return buff;
     }
 
 

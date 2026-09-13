@@ -22,7 +22,8 @@ public:
 private:
     CString m_text;
     CString m_title;
-    CSize m_min_size;
+    CSize m_min_size{ 0, 0 };
+    HICON m_h_icon{ nullptr };
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持

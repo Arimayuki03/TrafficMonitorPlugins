@@ -13,7 +13,7 @@
 #define IDS_ADD_STOCK                   108
 #define IDS_EDIT_STOCK                  109
 #define IDI_STOCK                       109
-#define IDS_RESTART_TRAFFICMONITOR_INFO 110
+#define IDS_RESTART_TRAFFICMONITOR_INFO 115
 #define IDS_CHANGE_STOCK_TIP            110
 #define IDS_STOCK_NUM_LIMIT_WARNING     111
 #define IDS_UNSUPPORT_SHOW_KLINE_STOCK_TIP 112

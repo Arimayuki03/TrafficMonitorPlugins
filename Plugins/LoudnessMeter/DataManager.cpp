@@ -1,5 +1,7 @@
 ﻿#include "pch.h"
 #include "DataManager.h"
+#include <GdiPlus.h>
+#pragma comment(lib,"GdiPlus.lib")
 
 CDataManager CDataManager::m_instance;
 
@@ -9,11 +11,17 @@ CDataManager::CDataManager()
     HDC hDC = ::GetDC(HWND_DESKTOP);
     m_dpi = GetDeviceCaps(hDC, LOGPIXELSY);
     ::ReleaseDC(HWND_DESKTOP, hDC);
+
+    //初始化GDI+，不能依赖宿主进程已经初始化GDI+
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&m_gdiplus_token, &gdiplusStartupInput, NULL);
 }
 
 CDataManager::~CDataManager()
 {
     SaveConfig();
+    if (m_gdiplus_token != 0)
+        Gdiplus::GdiplusShutdown(m_gdiplus_token);
 }
 
 CDataManager& CDataManager::Instance()
@@ -87,7 +95,9 @@ HICON CDataManager::GetIcon(UINT id)
     {
         AFX_MANAGE_STATE(AfxGetStaticModuleState());
         HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(id), IMAGE_ICON, DPI(16), DPI(16), 0);
-        m_icons[id] = hIcon;
+        //加载失败时不缓存，允许下次重试
+        if (hIcon != nullptr)
+            m_icons[id] = hIcon;
         return hIcon;
     }
 }

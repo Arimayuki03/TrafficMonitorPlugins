@@ -8,26 +8,42 @@ CLoudnessMeter CLoudnessMeter::m_instance;
 
 CLoudnessMeter::CLoudnessMeter()
 {
-    CoInitialize(NULL);
-    CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
-    if (pEnumerator == nullptr)
-        return;
-    InitDevice();
+    //COM初始化和设备创建移到OnInitialize中进行，避免在DllMain(静态对象构造)期间调用
 }
 
 CLoudnessMeter::~CLoudnessMeter()
 {
+    if (m_timer_id != 0)
+        ::KillTimer(NULL, m_timer_id);
     if (pMeterInfo != nullptr)
         pMeterInfo->Release();
     if (pDevice != nullptr)
         pDevice->Release();
     if (pEnumerator != nullptr)
         pEnumerator->Release();
+    if (m_com_inited)
+        CoUninitialize();
 }
 
 CLoudnessMeter& CLoudnessMeter::Instance()
 {
     return m_instance;
+}
+
+void CLoudnessMeter::OnInitialize(ITrafficMonitor* /*pApp*/)
+{
+    //初始化COM。宿主已按其他模式初始化时(RPC_E_CHANGED_MODE)可以直接使用，但无需配对CoUninitialize
+    HRESULT hr = CoInitialize(NULL);
+    if (hr == RPC_E_CHANGED_MODE)
+        m_com_inited = false;
+    else if (SUCCEEDED(hr))
+        m_com_inited = true;
+    else
+        return;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator)))
+        pEnumerator = nullptr;
+    else
+        InitDevice();
 }
 
 IPluginItem* CLoudnessMeter::GetItem(int index)
@@ -68,7 +84,6 @@ ITMPlugin::OptionReturn CLoudnessMeter::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CLoudnessMeter::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:
@@ -97,10 +112,8 @@ void CLoudnessMeter::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
     case ITMPlugin::EI_CONFIG_DIR:
         //从配置文件读取配置
         g_data.LoadConfig(std::wstring(data));
-        //启动一个定时器
-        SetTimer(NULL, 1265, 50, [](HWND, UINT, UINT_PTR, DWORD) {
-            m_instance.DoDataAcquire();
-        });
+        //启动采集数据的定时器
+        EnsureTimer();
 
         break;
     default:
@@ -145,29 +158,70 @@ void CLoudnessMeter::DoDataAcquire()
     float peakValue = 0.0f;
     if (pMeterInfo != nullptr)
     {
-        pMeterInfo->GetPeakValue(&peakValue);
-        if (peakValue > 1e-6f)
+        HRESULT hr = pMeterInfo->GetPeakValue(&peakValue);
+        if (SUCCEEDED(hr))
         {
-            float dB = static_cast<float>(20 * log10(peakValue));
-            m_item.SetValue(dB, peakValue * 100, CLoudnessMeterItem::DB_VALID);
+            if (peakValue > 1e-6f)
+            {
+                float dB = static_cast<float>(20 * log10(peakValue));
+                m_item.SetValue(dB, peakValue * 100, CLoudnessMeterItem::DB_VALID);
+                //生成鼠标提示信息
+                wchar_t buff[32]{};
+                swprintf_s(buff, L"%.2f dB", dB);
+                m_tooltip_info = buff;
+            }
+            else
+            {
+                m_item.SetValue(0, 0, CLoudnessMeterItem::DB_MUTE);
+                m_tooltip_info = g_data.StringRes(IDS_MUTE).GetString();
+            }
         }
         else
         {
-            m_item.SetValue(0, 0, CLoudnessMeterItem::DB_MUTE);
+            //获取失败(如默认播放设备已失效)，标记为无效，等待用户重新初始化
+            m_item.SetValue(0, 0, CLoudnessMeterItem::DB_INVALID);
+            m_tooltip_info.clear();
         }
     }
     else
     {
         m_item.SetValue(0, 0, CLoudnessMeterItem::DB_INVALID);
+        m_tooltip_info.clear();
     }
 }
 
 void CLoudnessMeter::InitDevice()
 {
-    pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice);
-    if (pDevice == nullptr)
+    //释放已有接口，避免重复初始化时泄漏
+    if (pMeterInfo != nullptr)
+    {
+        pMeterInfo->Release();
+        pMeterInfo = nullptr;
+    }
+    if (pDevice != nullptr)
+    {
+        pDevice->Release();
+        pDevice = nullptr;
+    }
+    if (pEnumerator == nullptr)
         return;
-    pDevice->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, NULL, (void**)&pMeterInfo);
+    if (FAILED(pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice)))
+    {
+        pDevice = nullptr;
+        return;
+    }
+    if (FAILED(pDevice->Activate(__uuidof(IAudioMeterInformation), CLSCTX_ALL, NULL, (void**)&pMeterInfo)))
+        pMeterInfo = nullptr;
+}
+
+void CLoudnessMeter::EnsureTimer()
+{
+    //先销毁已有定时器再创建，避免EI_CONFIG_DIR多次到达时重复创建定时器
+    if (m_timer_id != 0)
+        ::KillTimer(NULL, m_timer_id);
+    m_timer_id = ::SetTimer(NULL, 1265, 50, [](HWND, UINT, UINT_PTR, DWORD) {
+        m_instance.DoDataAcquire();
+    });
 }
 
 ITMPlugin* TMPluginGetInstance()

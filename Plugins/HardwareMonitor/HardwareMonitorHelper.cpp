@@ -138,7 +138,10 @@ namespace HardwareMonitor
 
     float HardwareMonitorHelper::GetSensorValue(LibreHardwareMonitor::Hardware::ISensor^ sensor, System::String^ unit)
     {
-        float value = sensor->Value.Value;
+        //传感器未上报数据时Value为null，直接取Value.Value会抛异常，导致后续所有监控项停止更新
+        float value = 0.0f;
+        if (sensor->Value.HasValue)
+            value = sensor->Value.Value;
         //电压
         if (sensor->SensorType == SensorType::Voltage)
         {
@@ -161,7 +164,7 @@ namespace HardwareMonitor
         else if (sensor->SensorType == SensorType::Clock)
         {
             if (unit->Equals("GHz"))
-                value /= 1024.0f;
+                value /= 1000.0f;
         }
         //温度
         else if (sensor->SensorType == SensorType::Temperature)
@@ -194,7 +197,7 @@ namespace HardwareMonitor
         else if (sensor->SensorType == SensorType::Energy)
         {
             if (unit->Equals("Wh"))
-                value /= 1024.0f;
+                value /= 1000.0f;
         }
         if (sensor->SensorType == SensorType::Power && sensor->Name == L"Discharge Rate")   //放电功率显示为负数
             value = -value;
@@ -296,6 +299,7 @@ namespace HardwareMonitor
             {
                 ISensor^ gpu_temp = nullptr;
                 ISensor^ gpu_temp_default = nullptr;
+                bool gpu_temp_found = false;
                 for (int j = 0; j < hardware->Sensors->Length; j++)
                 {
                     ISensor^ sensor = hardware->Sensors[j];
@@ -304,10 +308,11 @@ namespace HardwareMonitor
                     {
                         if (gpu_temp_default == nullptr)
                             gpu_temp_default = sensor;
-                        if (sensor->Name->Equals("GPU Core"))
+                        //不能break退出整个循环，否则排在温度后面的负载传感器会被漏掉
+                        if (!gpu_temp_found && sensor->Name->Equals("GPU Core"))
                         {
                             gpu_temp = sensor;
-                            break;
+                            gpu_temp_found = true;
                         }
                     }
                     //GPU负载

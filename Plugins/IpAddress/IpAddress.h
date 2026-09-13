@@ -29,6 +29,7 @@ private:
     static CIpAddress m_instance;
     CIpAddressItem m_item;
     std::wstring m_tooltip_info;
+    DWORD m_last_refresh_tick{ 0 };     //上次自动刷新网络连接的时间
 };
 
 #ifdef __cplusplus

@@ -27,28 +27,30 @@ CWeather& CWeather::Instance()
 UINT CWeather::ThreadCallback(LPVOID dwUser)
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    CFlagLocker flag_locker(m_instance.m_is_thread_runing);
 
     time_t cur_time = time(nullptr);
-    if (cur_time - m_instance.m_last_request_time > 3)  //确保请求天气信息的时间距离上次请求时超过3秒
+    if (cur_time - m_instance.m_last_request_time.load() > 3)   //确保请求天气信息的时间距离上次请求时超过3秒
     {
         m_instance.m_last_request_time = cur_time;
 
-        //禁用选项设置中的“更新”按钮
+        //标记正在更新，并通知选项设置对话框禁用“更新”按钮(不能在后台线程直接操作UI)
         m_instance.DisableUpdateWeatherCommand();
 
         if (g_data.m_setting_data.auto_locate)      //自动获取当前城市
         {
             std::wstring cur_city = CCurLocationHelper::GetCurrentCity();
             int auto_located_city = CCurLocationHelper::FindCityCodeItem(cur_city);
-            g_data.m_auto_locate_succeed = (auto_located_city >= 0);
-            g_data.m_auto_located = true;
-            if (g_data.m_auto_locate_succeed)
-                g_data.m_setting_data.m_city_index = auto_located_city;
+            {
+                std::lock_guard<std::recursive_mutex> lock(m_instance.m_data_mutex);
+                g_data.m_auto_locate_succeed = (auto_located_city >= 0);
+                g_data.m_auto_located = true;
+                if (g_data.m_auto_locate_succeed)
+                    g_data.m_setting_data.m_city_index = auto_located_city;
+            }
         }
 
-        //获取天气信息
-        std::wstring url{ L"http://www.nmc.cn/rest/weather?stationid=" };
+        //获取天气信息(使用https，避免明文http被劫持)
+        std::wstring url{ L"https://www.nmc.cn/rest/weather?stationid=" };
         url += g_data.CurCity().code;
         std::string weather_data;
         if (CCommon::GetURL(url, weather_data, std::wstring(), true))
@@ -57,18 +59,22 @@ UINT CWeather::ThreadCallback(LPVOID dwUser)
             {
                 //解析成功时，将天气信息保存到Weather.json
                 std::ofstream stream{ g_data.m_config_dir + L"Weather.json" };
-                stream << weather_data;
-                //保存历史天气数据
+                if (stream.is_open())
+                    stream << weather_data;
+                //保存历史天气数据(先清理超过30天的过期数据)
+                g_data.HistoryWeatherMgr().PruneExpiredData();
                 g_data.HistoryWeatherMgr().Save();
             }
         }
 
-        if (m_instance.m_option_dlg != nullptr)
-            m_instance.m_option_dlg->UpdateAutoLocteResult();
+        //通知选项设置对话框自动定位结果。对话框指针不能跨线程解引用，改为向其窗口发送消息
+        if (m_instance.m_h_option_dlg != nullptr)
+            ::PostMessage(m_instance.m_h_option_dlg, WM_WEATHER_AUTO_LOCATE_FINISHED, 0, 0);
 
         //启用选项设置中的“更新”按钮
         m_instance.EnableUpdateWeatherCommand();
     }
+    m_instance.m_is_thread_runing = false;
     return 0;
 }
 
@@ -128,8 +134,10 @@ void CWeather::ParseWeatherInfo(WeatherInfo& weather_info, yyjson_val* forecast)
     }
 }
 
-const CString& CWeather::GetCurCity()
+CString CWeather::GetCurCity()
 {
+    //在锁内返回副本，避免后台线程更新城市名时调用方读到不一致的内容
+    std::lock_guard<std::recursive_mutex> lock(m_data_mutex);
     return m_cur_city;
 }
 
@@ -159,121 +167,138 @@ bool CWeather::ParseJsonData(std::string json_data)
     yyjson_doc* doc = yyjson_read(json_data.c_str(), json_data.size(), 0);
     if (doc == nullptr)
         return false;
-    //获取Json根节点
-    yyjson_val* root = yyjson_doc_get_root(doc);
-    if (root == nullptr)
-        return false;
-    //获取数据节点
-    yyjson_val* data_node = yyjson_obj_get(root, "data");
-    if (data_node == nullptr)
-        return false;
-    //获取实时天气节点
-    yyjson_val* real_node = yyjson_obj_get(data_node, "real");
-    if (real_node == nullptr)
-        return false;
-
-    g_data.ResetText();
-
-    //获取日期
-    int year{};
-    int month{};
-    int day{};
-    std::string str_date = utilities::JsonHelper::GetJsonString(real_node, "publish_time");
-    if (str_date.size() >= 4)
-        year = atoi(str_date.substr(0, 4).c_str());
-    if (str_date.size() >= 7)
-        month = atoi(str_date.substr(5, 2).c_str());
-    if (str_date.size() >= 10)
-        day = atoi(str_date.substr(8, 2).c_str());
-
-    //获取城市
-    yyjson_val* station_node = yyjson_obj_get(real_node, "station");
-    std::wstring str_province = GetJsonWString(station_node, "province");
-    std::wstring str_city = GetJsonWString(station_node, "city");
-    m_cur_city.Format(_T("%s %s"), str_province.c_str(), str_city.c_str());
-
-    //获取时间
-    std::string str_time = str_date.substr(11);
-    std::vector<std::string> time_split;
-    utilities::StringHelper::StringSplit(str_time, ':', time_split);
-    int hour{};
-    int minute{};
-    if (time_split.size() >= 1)
-        hour = atoi(time_split[0].c_str());
-    if (time_split.size() >= 2)
-        minute = atoi(time_split[1].c_str());
-    g_data.m_update_time = CTime(year, month, day, hour, minute, 0);
-
-    //获取当前天气
-    yyjson_val* weather_node = yyjson_obj_get(real_node, "weather");
-    g_data.m_weather_info[WEATHER_CURRENT].m_high = utilities::JsonHelper::GetJsonWString(weather_node, "temperature");
-    g_data.m_weather_info[WEATHER_CURRENT].m_type = GetJsonWString(weather_node, "info");
-    g_data.m_weather_info[WEATHER_CURRENT].is_cur_weather = true;
-
-    //获取风力风向
-    yyjson_val* wind_node = yyjson_obj_get(real_node, "wind");
-    std::wstring wind_direct = GetJsonWString(wind_node, "direct");
-    std::wstring wind_power = GetJsonWString(wind_node, "power");
-    g_data.m_weather_info[WEATHER_CURRENT].m_wind = wind_direct + L' ' + wind_power;
-
-    //空气质量
-    yyjson_val* air_node = yyjson_obj_get(data_node, "air");
-    if (air_node != nullptr)
+    bool succeed = false;
     {
-        g_data.m_aqi = GetJsonWString(air_node, "aqi");
-        g_data.m_quality = GetJsonWString(air_node, "text");
-    }
+        //解析过程会写天气数据，与UI线程并发读取，需要加锁保护
+        std::lock_guard<std::recursive_mutex> lock(m_data_mutex);
+        //把解析过程放在lambda中执行，保证yyjson文档在所有返回路径上都会被释放(原先提前return时泄漏)
+        auto parse_body = [&]() -> bool {
+        //获取Json根节点
+        yyjson_val* root = yyjson_doc_get_root(doc);
+        if (root == nullptr)
+            return false;
+        //获取数据节点
+        yyjson_val* data_node = yyjson_obj_get(root, "data");
+        if (data_node == nullptr)
+            return false;
+        //获取实时天气节点
+        yyjson_val* real_node = yyjson_obj_get(data_node, "real");
+        if (real_node == nullptr)
+            return false;
 
-    //获取3天的天气
-    yyjson_val* predict_node = yyjson_obj_get(data_node, "predict");
-    if (predict_node == nullptr)
-        return false;
+        //获取日期
+        int year{};
+        int month{};
+        int day{};
+        std::string str_date = utilities::JsonHelper::GetJsonString(real_node, "publish_time");
+        if (str_date.size() >= 4)
+            year = atoi(str_date.substr(0, 4).c_str());
+        if (str_date.size() >= 7)
+            month = atoi(str_date.substr(5, 2).c_str());
+        if (str_date.size() >= 10)
+            day = atoi(str_date.substr(8, 2).c_str());
 
-    yyjson_val* forecast_arr = yyjson_obj_get(predict_node, "detail");
-    if (forecast_arr != nullptr && yyjson_is_arr(forecast_arr))
-    {
-        yyjson_val* forecast_today = yyjson_arr_get_first(forecast_arr);
-        yyjson_val* forecast_tommorrow = yyjson_arr_get(forecast_arr, 1);
-        yyjson_val* forecast_day2 = yyjson_arr_get(forecast_arr, 2);
-        ParseWeatherInfo(g_data.m_weather_info[WEATHER_TODAY], forecast_today);
-        ParseWeatherInfo(g_data.m_weather_info[WEATHER_TOMMORROW], forecast_tommorrow);
-        ParseWeatherInfo(g_data.m_weather_info[WEATHER_DAY2], forecast_day2);
-        //添加到历史记录
-        g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_today);
-        g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_tommorrow);
-        g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_day2);
-        //获取所有天气并添加到历史记录
-        for (int i = 3; ; i++)
+        //获取城市
+        yyjson_val* station_node = yyjson_obj_get(real_node, "station");
+        std::wstring str_province = GetJsonWString(station_node, "province");
+        std::wstring str_city = GetJsonWString(station_node, "city");
+        m_cur_city.Format(_T("%s %s"), str_province.c_str(), str_city.c_str());
+
+        //获取时间。str_date长度不足11时不能substr(11)，否则抛出未捕获的异常直接终止宿主进程
+        std::string str_time;
+        if (str_date.size() > 11)
+            str_time = str_date.substr(11);
+        std::vector<std::string> time_split;
+        utilities::StringHelper::StringSplit(str_time, ':', time_split);
+        int hour{};
+        int minute{};
+        if (time_split.size() >= 1)
+            hour = atoi(time_split[0].c_str());
+        if (time_split.size() >= 2)
+            minute = atoi(time_split[1].c_str());
+        //校验日期时间的合法性，避免构造非法的CTime
+        if (year < 1970 || year > 3000 || month < 1 || month > 12 || day < 1 || day > 31
+            || hour < 0 || hour > 23 || minute < 0 || minute > 59)
+            return false;
+
+        g_data.ResetText();
+
+        g_data.m_update_time = CTime(year, month, day, hour, minute, 0);
+
+        //获取当前天气
+        yyjson_val* weather_node = yyjson_obj_get(real_node, "weather");
+        g_data.m_weather_info[WEATHER_CURRENT].m_high = utilities::JsonHelper::GetJsonWString(weather_node, "temperature");
+        g_data.m_weather_info[WEATHER_CURRENT].m_type = GetJsonWString(weather_node, "info");
+        g_data.m_weather_info[WEATHER_CURRENT].is_cur_weather = true;
+
+        //获取风力风向
+        yyjson_val* wind_node = yyjson_obj_get(real_node, "wind");
+        std::wstring wind_direct = GetJsonWString(wind_node, "direct");
+        std::wstring wind_power = GetJsonWString(wind_node, "power");
+        g_data.m_weather_info[WEATHER_CURRENT].m_wind = wind_direct + L' ' + wind_power;
+
+        //空气质量
+        yyjson_val* air_node = yyjson_obj_get(data_node, "air");
+        if (air_node != nullptr)
         {
-            yyjson_val* forecast = yyjson_arr_get(forecast_arr, i);
-            if (forecast != nullptr)
-                g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast);
-            else
-                break;
+            g_data.m_aqi = GetJsonWString(air_node, "aqi");
+            g_data.m_quality = GetJsonWString(air_node, "text");
         }
+
+        //获取3天的天气
+        yyjson_val* predict_node = yyjson_obj_get(data_node, "predict");
+        if (predict_node == nullptr)
+            return false;
+
+        yyjson_val* forecast_arr = yyjson_obj_get(predict_node, "detail");
+        if (forecast_arr != nullptr && yyjson_is_arr(forecast_arr))
+        {
+            yyjson_val* forecast_today = yyjson_arr_get_first(forecast_arr);
+            yyjson_val* forecast_tommorrow = yyjson_arr_get(forecast_arr, 1);
+            yyjson_val* forecast_day2 = yyjson_arr_get(forecast_arr, 2);
+            ParseWeatherInfo(g_data.m_weather_info[WEATHER_TODAY], forecast_today);
+            ParseWeatherInfo(g_data.m_weather_info[WEATHER_TOMMORROW], forecast_tommorrow);
+            ParseWeatherInfo(g_data.m_weather_info[WEATHER_DAY2], forecast_day2);
+            //添加到历史记录
+            g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_today);
+            g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_tommorrow);
+            g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast_day2);
+            //获取所有天气并添加到历史记录
+            for (int i = 3; ; i++)
+            {
+                yyjson_val* forecast = yyjson_arr_get(forecast_arr, i);
+                if (forecast != nullptr)
+                    g_data.HistoryWeatherMgr().AddWeatherInfo(m_cur_city, forecast);
+                else
+                    break;
+            }
+        }
+
+        //生成鼠标提示字符串
+        const WeatherInfo& weather_current{ g_data.m_weather_info[WEATHER_CURRENT] };
+        const WeatherInfo& weather_today{ g_data.m_weather_info[WEATHER_TODAY] };
+        const WeatherInfo& weather_tomorrow{ g_data.m_weather_info[WEATHER_TOMMORROW] };
+        const WeatherInfo& weather_day2{ g_data.m_weather_info[WEATHER_DAY2] };
+        CTime update_date = CCommon::GetDateOnly(g_data.m_update_time);
+        const CTimeSpan one_day_span(1, 0, 0, 0);
+        CTime tomorrow_date = update_date + one_day_span;
+        CTime the_day_after_tomorrow_date = tomorrow_date + one_day_span;
+        std::wstringstream wss;
+        wss << str_city << L' ' << weather_current.ToString()
+            << L" AQI: " << g_data.m_aqi << L' ' << g_data.m_quality
+            << std::endl << g_data.StringRes(IDS_UPDATE_TIME).GetString() << L": " << g_data.GetUpdateTimeAsString().GetString()
+            << std::endl << GetDateString(update_date) << L": " << weather_today.ToString()
+            << std::endl << GetDateString(tomorrow_date) << L": " << weather_tomorrow.ToString()
+            << std::endl << GetDateString(the_day_after_tomorrow_date) << L": " << weather_day2.ToString()
+            ;
+        m_tooltop_info = wss.str();
+
+        return true;
+        };
+        succeed = parse_body();
     }
-
-    //生成鼠标提示字符串
-    const WeatherInfo& weather_current{ g_data.m_weather_info[WEATHER_CURRENT] };
-    const WeatherInfo& weather_today{ g_data.m_weather_info[WEATHER_TODAY] };
-    const WeatherInfo& weather_tomorrow{ g_data.m_weather_info[WEATHER_TOMMORROW] };
-    const WeatherInfo& weather_day2{ g_data.m_weather_info[WEATHER_DAY2] };
-    CTime update_date = CCommon::GetDateOnly(g_data.m_update_time);
-    const CTimeSpan one_day_span(1, 0, 0, 0);
-    CTime tomorrow_date = update_date + one_day_span;
-    CTime the_day_after_tomorrow_date = tomorrow_date + one_day_span;
-    std::wstringstream wss;
-    wss << str_city << L' ' << weather_current.ToString()
-        << L" AQI: " << g_data.m_aqi << L' ' << g_data.m_quality
-        << std::endl << g_data.StringRes(IDS_UPDATE_TIME).GetString() << L": " << g_data.GetUpdateTimeAsString().GetString()
-        << std::endl << GetDateString(update_date) << L": " << weather_today.ToString()
-        << std::endl << GetDateString(tomorrow_date) << L": " << weather_tomorrow.ToString()
-        << std::endl << GetDateString(the_day_after_tomorrow_date) << L": " << weather_day2.ToString()
-        ;
-    m_tooltop_info = wss.str();
-
     yyjson_doc_free(doc);
-    return true;
+    return succeed;
 }
 
 void CWeather::LoadContextMenu()
@@ -300,7 +325,13 @@ IPluginItem* CWeather::GetItem(int index)
 const wchar_t* CWeather::GetTooltipInfo()
 {
     if (g_data.m_setting_data.m_show_weather_in_tooltips)
-        return m_tooltop_info.c_str();
+    {
+        //在锁内复制到静态缓冲再返回，避免后台线程更新提示内容时读到不一致的数据
+        std::lock_guard<std::recursive_mutex> lock(m_data_mutex);
+        static std::wstring tooltip_copy;
+        tooltip_copy = m_tooltop_info;
+        return tooltip_copy.c_str();
+    }
     else
         return L"";
 }
@@ -329,9 +360,7 @@ ITMPlugin::OptionReturn CWeather::ShowOptionsDialog(void* hParent)
     //g_data.DPIFromWindow(pParent);
     COptionsDlg dlg(pParent);
     dlg.m_data = g_data.m_setting_data;
-    m_option_dlg = &dlg;
     auto rtn = dlg.DoModal();
-    m_option_dlg = nullptr;
     if (rtn == IDOK)
     {
         bool city_changed{ g_data.m_setting_data.m_city_index != dlg.m_data.m_city_index ||
@@ -349,7 +378,6 @@ ITMPlugin::OptionReturn CWeather::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CWeather::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:
@@ -399,8 +427,15 @@ void* CWeather::GetPluginIcon()
 
 void CWeather::SendWetherInfoQequest()
 {
-    if (!m_is_thread_runing)    //确保线程已退出
-        AfxBeginThread(ThreadCallback, nullptr);
+    //原子地检查并置位，避免同时启动两个刷新线程
+    bool expected = false;
+    if (m_is_thread_runing.compare_exchange_strong(expected, true))
+    {
+        if (AfxBeginThread(ThreadCallback, nullptr) == NULL)
+        {
+            m_is_thread_runing = false;
+        }
+    }
 }
 
 void CWeather::ShowContextMenu(CWnd* pWnd)
@@ -409,6 +444,8 @@ void CWeather::ShowContextMenu(CWnd* pWnd)
     CMenu* context_menu = m_menu.GetSubMenu(0);
     if (context_menu != nullptr)
     {
+        //“更新天气”菜单项的状态在UI线程中刷新(后台线程不能直接操作菜单)
+        context_menu->EnableMenuItem(ID_UPDATE_WEATHER, MF_BYCOMMAND | (m_update_in_progress ? MF_GRAYED : MF_ENABLED));
         CPoint point1;
         GetCursorPos(&point1);
         DWORD id = context_menu->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, point1.x, point1.y, pWnd);
@@ -418,9 +455,7 @@ void CWeather::ShowContextMenu(CWnd* pWnd)
             AFX_MANAGE_STATE(AfxGetStaticModuleState());
             COptionsDlg dlg;
             dlg.m_data = g_data.m_setting_data;
-            m_option_dlg = &dlg;
             auto rtn = dlg.DoModal();
-            m_option_dlg = nullptr;
             if (rtn == IDOK)
             {
                 bool city_changed{ g_data.m_setting_data.m_city_index != dlg.m_data.m_city_index };
@@ -441,18 +476,17 @@ void CWeather::ShowContextMenu(CWnd* pWnd)
 
 void CWeather::DisableUpdateWeatherCommand()
 {
-    if (m_option_dlg != nullptr)
-        m_option_dlg->EnableUpdateBtn(false);
-    if (m_menu.m_hMenu != NULL)
-        m_menu.EnableMenuItem(ID_UPDATE_WEATHER, MF_BYCOMMAND | MF_GRAYED);
+    //只设置标志，按钮/菜单状态由UI线程刷新，不能在后台线程直接操作UI
+    m_update_in_progress = true;
+    if (m_h_option_dlg != nullptr)
+        ::PostMessage(m_h_option_dlg, WM_WEATHER_UPDATE_STATE_CHANGED, FALSE, 0);
 }
 
 void CWeather::EnableUpdateWeatherCommand()
 {
-    if (m_instance.m_option_dlg != nullptr)
-        m_instance.m_option_dlg->EnableUpdateBtn(true);
-    if (m_menu.m_hMenu != NULL)
-        m_menu.EnableMenuItem(ID_UPDATE_WEATHER, MF_BYCOMMAND | MF_ENABLED);
+    m_update_in_progress = false;
+    if (m_h_option_dlg != nullptr)
+        ::PostMessage(m_h_option_dlg, WM_WEATHER_UPDATE_STATE_CHANGED, TRUE, 0);
 }
 
 const wchar_t* CWeather::GetCommandName(int command_index)

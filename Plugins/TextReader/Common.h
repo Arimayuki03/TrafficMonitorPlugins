@@ -12,6 +12,9 @@ public:
     //判断一个字符串是否UTF8编码
     static bool IsUTF8Bytes(const char* data);
 
+    //识别文本编码(UTF-16 BOM/UTF-8 BOM/UTF-8/ANSI)并转换成Unicode字符串
+    static std::wstring ConvertToUnicode(const std::string& content);
+
     static void StringSplit(const std::wstring& str, const std::wstring& div_str, std::vector<std::wstring>& results, bool skip_empty = true);
 
     //获取一个文件的最后修改时间

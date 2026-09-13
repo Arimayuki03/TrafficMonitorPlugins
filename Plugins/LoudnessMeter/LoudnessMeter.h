@@ -26,10 +26,12 @@ public:
     virtual const wchar_t* GetCommandName(int command_index) override;
     virtual void* GetCommandIcon(int command_index) override;
     virtual void OnPluginCommand(int command_index, void* hWnd, void* para) override;
+    virtual void OnInitialize(ITrafficMonitor* pApp) override;
 
 private:
     void DoDataAcquire();
     void InitDevice();
+    void EnsureTimer();
 
 private:
     static CLoudnessMeter m_instance;
@@ -38,6 +40,8 @@ private:
     IMMDeviceEnumerator* pEnumerator = NULL;
     IMMDevice* pDevice = NULL;
     IAudioMeterInformation* pMeterInfo = NULL;
+    UINT_PTR m_timer_id{ 0 };       //采集数据的定时器ID
+    bool m_com_inited{ false };     //是否需要在析构时调用CoUninitialize
 };
 
 #ifdef __cplusplus

@@ -8,6 +8,8 @@ class CHistoryWeatherMgr
 public:
     CHistoryWeatherMgr() {}
     bool Save() const;
+    //清理超过30天的历史数据，避免历史数据无限增长(在Save之前由调用方调用)
+    void PruneExpiredData();
     bool Load();
 
     struct Date

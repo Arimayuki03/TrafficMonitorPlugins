@@ -1,8 +1,6 @@
 ﻿#include <string>
 #include "base64.h"
 #include <algorithm>
-#include <cassert>
-#include <set>
 
 namespace utilities {
 
@@ -76,7 +74,7 @@ static std::string FourBytesToThreeBytes(const char* bytes, int len)
     return res;
 }
 
-std::string Base64Encode(const std::string str_in)
+std::string Base64Encode(const std::string& str_in)
 {
     std::string res;
     for (size_t i = 0; i < str_in.size(); i += 3)
@@ -89,7 +87,7 @@ std::string Base64Encode(const std::string str_in)
     return res;
 }
 
-std::string Base64Decode(const std::string str_in)
+std::string Base64Decode(const std::string& str_in)
 {
     std::string res;
     for (size_t i = 0; i < str_in.size(); i += 4)
@@ -102,20 +100,35 @@ std::string Base64Decode(const std::string str_in)
 }
 
 
-bool IsBase64Code(const std::string str, size_t max_length)
+bool IsBase64Code(const std::string& str, size_t max_length)
 {
-    std::set<char> base64EncodeSet;
-    int len = _countof(base64DecodeTable);
-    for (int i = 0; i < len; i++)
-        base64EncodeSet.insert(base64EncodeTable[i]);
-
-    for (size_t i = 0; i < str.size() && i <= max_length; i++)
+    //注意：循环上限必须是base64EncodeTable的长度（65，含结尾'\0'），
+    //不能使用base64DecodeTable的大小，否则会越界读编码表后面的内存
+    static const size_t table_length = sizeof(base64EncodeTable);
+    size_t length = str.size();
+    if (max_length < length)
+        length = max_length;
+    for (size_t i = 0; i < length; i++)
     {
-        if (i == str.size() - 1 && str[i] == '=')		//遍历到最后一个字符是'='，返回true
-            return true;
-        if (i == str.size() - 2 && str[i] == '=' && str[i + 1] == '=')	//遍历到最倒数第2个字符，后面两个字符都是'='，返回true
-            return true;
-        if (base64EncodeSet.find(str[i]) == base64EncodeSet.end())		//如果有一个字符不在base64编码表中，则返回false
+        char ch = str[i];
+        if (ch == '=')
+        {
+            //'='只允许出现在末尾1~2个字符
+            if (i + 1 == str.size() || (i + 2 == str.size() && str[i + 1] == '='))
+                return true;
+            return false;
+        }
+        //字符必须在base64编码表中
+        bool in_table = false;
+        for (size_t j = 0; j < table_length - 1; j++)
+        {
+            if (base64EncodeTable[j] == ch)
+            {
+                in_table = true;
+                break;
+            }
+        }
+        if (!in_table)
             return false;
     }
     return true;

@@ -10,7 +10,9 @@
 
 const wchar_t *StockItem::GetItemName() const
 {
-    static std::wstring item_name;
+    std::wstring &item_name{ m_item_name_cache };
+    //在锁内读取股票数据，避免与后台刷新线程产生数据竞争
+    std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
     auto data = g_data.GetStockData(stock_id);
     if (data->info.is_ok)
     {
@@ -33,7 +35,7 @@ const wchar_t *StockItem::GetItemName() const
 
 const wchar_t *StockItem::GetItemId() const
 {
-    static std::wstring item_id;
+    std::wstring &item_id{ m_item_id_cache };
     item_id = L"qL0KmmYi";
     item_id += std::to_wstring(index);
     return item_id.c_str();
@@ -56,12 +58,15 @@ bool StockItem::IsCustomDraw() const
 int StockItem::GetItemWidthEx(void *hDC) const
 {
     CDC *pDC = CDC::FromHandle((HDC)hDC);
-    int width = pDC->GetTextExtent(g_data.GetStockData(stock_id)->GetCurrentDisplay(g_data.m_setting_data.m_show_stock_name).c_str()).cx;
+    //在锁内复制显示文本，避免与后台刷新线程产生数据竞争
+    std::wstring display_text;
+    {
+        std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
+        display_text = g_data.GetStockData(stock_id)->GetCurrentDisplay(g_data.m_setting_data.m_show_stock_name);
+    }
 
-    char buff[32];
-    sprintf_s(buff, "GetItemWidthEx %d", width);
+    int width = pDC->GetTextExtent(display_text.c_str()).cx;
 
-    // CCommon::WriteLog(CCommon::StrToUnicode(buff).c_str(), g_data.m_log_path.c_str());
     LogX(L"GetItemWidthEx: %d\n", width);
     return width;
 }
@@ -72,8 +77,17 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     CDC *pDC = CDC::FromHandle((HDC)hDC);
 
     // 矩形区域
-    auto data = g_data.GetStockData(stock_id);
     CRect rect(CPoint(x, y), CSize(w, h));
+
+    //在锁内复制需要显示的数据，避免与后台刷新线程产生数据竞争
+    STOCK::StockInfo info_copy;
+    std::wstring display_text;
+    {
+        std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
+        auto data = g_data.GetStockData(stock_id);
+        info_copy = data->info;
+        display_text = data->GetCurrentDisplay(false);
+    }
 
     // 文本颜色
     COLORREF color_default;
@@ -93,11 +107,11 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     }
 
     CRect rect_value{rect};
-    if (data->info.is_ok && g_data.m_setting_data.m_show_stock_name)
+    if (info_copy.is_ok && g_data.m_setting_data.m_show_stock_name)
     {
         // 绘制名称
         pDC->SetTextColor(color_default);
-        CString stock_name{data->info.displayName.c_str()};
+        CString stock_name{info_copy.displayName.c_str()};
         stock_name += _T(": ");
         CRect rect_name{rect};
         rect_name.right = rect_name.left + pDC->GetTextExtent(stock_name).cx;
@@ -109,7 +123,7 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     if (g_data.m_setting_data.m_color_with_price)
     {
         // 绘制数值
-        if (data->info.displayFluctuation.find('-') != std::wstring::npos)
+        if (info_copy.displayFluctuation.find('-') != std::wstring::npos)
             pDC->SetTextColor(color_green);
         else
             pDC->SetTextColor(color_red);
@@ -122,7 +136,7 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     UINT flags = DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX;
     if (g_data.m_right_align)
         flags |= DT_RIGHT;
-    pDC->DrawText(data->GetCurrentDisplay(false).c_str(), rect_value, flags);
+    pDC->DrawText(display_text.c_str(), rect_value, flags);
 }
 
 const wchar_t *StockItem::GetItemValueSampleText() const

@@ -30,17 +30,17 @@ Stock &Stock::Instance()
 UINT Stock::ThreadCallback(LPVOID dwUser)
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    CFlagLocker flag_locker(m_instance.m_is_thread_runing);
+    m_instance.m_is_thread_runing = true;
 
     if (g_data.m_setting_data.m_stock_codes.empty())
     {
-        // CCommon::WriteLog(L"Stock_code not setting!", g_data.m_log_path.c_str());
         g_data.ResetText();
+        m_instance.m_is_thread_runing = false;
         return 0;
     }
 
     time_t cur_time = time(nullptr);
-    if (cur_time - m_instance.m_last_request_time > 3)
+    if (cur_time - m_instance.m_last_request_time.load() > 3)
     {
         m_instance.m_last_request_time = cur_time;
 
@@ -48,24 +48,23 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
         {
             SYSTEMTIME now_time;
             GetLocalTime(&now_time);
-            // CCommon::WriteLog(now_time.wHour, g_data.m_log_path.c_str());
-            // CCommon::WriteLog(now_time.wMinute, g_data.m_log_path.c_str());
             if (now_time.wHour < 9 || now_time.wHour > 15 || (now_time.wHour == 15 && now_time.wMinute > 30))
             {
                 CCommon::WriteLog(L"Not currently in trading time!", g_data.m_log_path.c_str());
                 g_data.ResetText();
+                m_instance.m_is_thread_runing = false;
                 return 0;
             }
         }
 
-        // 禁用选项设置中的“更新”按钮
-        m_instance.DisableUpdateCommand();
+        // 标记正在更新(菜单状态由UI线程在弹出菜单时刷新，不能在后台线程直接操作菜单)
+        m_instance.m_update_in_progress = true;
 
         g_data.RequestRealtimeData();
 
-        // 启用选项设置中的“更新”按钮
-        m_instance.EnableUpdateCommand();
+        m_instance.m_update_in_progress = false;
     }
+    m_instance.m_is_thread_runing = false;
     return 0;
 }
 
@@ -85,7 +84,8 @@ IPluginItem *Stock::GetItem(int index)
         item_size = g_data.m_setting_data.m_stock_codes.size();
     if (item_size == 0)
         item_size = 1;
-    if (index >= item_size)
+    //负索引同样返回空指针(宿主契约要求index在[0, 数量)之外时返回nullptr)
+    if (index < 0 || index >= static_cast<int>(item_size))
         return nullptr;
     return &(m_items[index]);
 }
@@ -97,11 +97,9 @@ const wchar_t *Stock::GetTooltipInfo()
 
 void Stock::DataRequired()
 {
-    static time_t last_req_time{-1};
     time_t cur_time = time(nullptr);
-    if (cur_time - m_instance.m_last_request_time > 3)
+    if (cur_time - m_instance.m_last_request_time.load() > 3)
     {
-        last_req_time = cur_time;
         SendStockInfoRequest();
     }
     std::lock_guard<std::mutex> lock(m_wndMutex);
@@ -213,7 +211,8 @@ void *Stock::GetPluginIcon()
 
 void Stock::updateItems()
 {
-    for (StockItem item : m_items)
+    //必须使用引用遍历，否则修改的是副本，复位不会生效
+    for (StockItem &item : m_items)
     {
         item.enable = FALSE;
     }
@@ -248,8 +247,15 @@ INT_PTR Stock::ShowStockManageDlg(CWnd *pWnd)
 
 void Stock::SendStockInfoRequest()
 {
-    if (!m_is_thread_runing) // 确保线程已退出
-        AfxBeginThread(ThreadCallback, nullptr);
+    //原子地检查并置位，避免两次快速触发时启动两个并发刷新线程
+    bool expected = false;
+    if (m_is_thread_runing.compare_exchange_strong(expected, true))
+    {
+        if (AfxBeginThread(ThreadCallback, nullptr) == NULL)
+        {
+            m_is_thread_runing = false;
+        }
+    }
 }
 
 void Stock::ShowContextMenu(CWnd *pWnd)
@@ -258,6 +264,8 @@ void Stock::ShowContextMenu(CWnd *pWnd)
     CMenu *context_menu = m_menu.GetSubMenu(0);
     if (context_menu != nullptr)
     {
+        //“更新”菜单项的状态在UI线程中刷新(后台线程不能直接操作菜单)
+        context_menu->EnableMenuItem(ID_UPDATE, MF_BYCOMMAND | (m_update_in_progress ? MF_GRAYED : MF_ENABLED));
         CPoint point1;
         GetCursorPos(&point1);
         DWORD id = context_menu->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, point1.x, point1.y, pWnd);
@@ -336,18 +344,13 @@ void Stock::UpdateKLine()
 
 void Stock::DisableUpdateCommand()
 {
-    // if (m_option_dlg != nullptr)
-    //     m_option_dlg->EnableUpdateBtn(false);
-    if (m_menu.m_hMenu != NULL)
-        m_menu.EnableMenuItem(ID_UPDATE, MF_BYCOMMAND | MF_GRAYED);
+    //只设置标志，菜单状态由UI线程在弹出菜单前刷新，不能在后台线程直接操作菜单
+    m_update_in_progress = true;
 }
 
 void Stock::EnableUpdateCommand()
 {
-    // if (m_instance.m_option_dlg != nullptr)
-    //     m_instance.m_option_dlg->EnableUpdateBtn(true);
-    if (m_menu.m_hMenu != NULL)
-        m_menu.EnableMenuItem(ID_UPDATE, MF_BYCOMMAND | MF_ENABLED);
+    m_update_in_progress = false;
 }
 
 ITMPlugin *TMPluginGetInstance()

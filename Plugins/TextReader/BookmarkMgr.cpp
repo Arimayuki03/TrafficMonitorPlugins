@@ -14,9 +14,12 @@ void CBookmarkMgr::AddBookmark(const std::wstring& file_path, int pos)
 
 void CBookmarkMgr::LoadFromConfig(const std::wstring& config_file_path)
 {
-    TCHAR buff[MAX_PATH];
-    GetPrivateProfileString(_T("config"), _T("bookmarks"), _T(""), buff, MAX_PATH, config_file_path.c_str());
+    //缓冲区不能只用MAX_PATH，书签较多或路径较长时会被静默截断导致书签丢失
+    static const int BOOKMARK_BUFF_SIZE = 32768;
+    TCHAR* buff = new TCHAR[BOOKMARK_BUFF_SIZE];
+    GetPrivateProfileString(_T("config"), _T("bookmarks"), _T(""), buff, BOOKMARK_BUFF_SIZE, config_file_path.c_str());
     std::wstring bookmarks_raw_str = buff;
+    delete[] buff;
     std::vector<std::wstring> bookmarks_by_files;
     CCommon::StringSplit(bookmarks_raw_str, L"||", bookmarks_by_files);
     for (const auto& file_bookmarks : bookmarks_by_files)

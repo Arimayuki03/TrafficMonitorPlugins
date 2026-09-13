@@ -25,6 +25,38 @@ bool CHistoryWeatherMgr::Date::operator<(const Date& another) const
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+void CHistoryWeatherMgr::PruneExpiredData()
+{
+    //清理超过30天的历史数据，避免历史数据无限增长
+    CTime cutoff = CTime::GetCurrentTime() - CTimeSpan(30, 0, 0, 0);
+    for (auto iter = m_history_weather_list.begin(); iter != m_history_weather_list.end();)
+    {
+        auto& weather_map = iter->second;
+        for (auto it_date = weather_map.begin(); it_date != weather_map.end();)
+        {
+            int y = it_date->first.year;
+            int mth = it_date->first.month;
+            int d = it_date->first.day;
+            if (y >= 1970 && y <= 3000 && mth >= 1 && mth <= 12 && d >= 1 && d <= 31)
+            {
+                CTime date(y, mth, d, 0, 0, 0);
+                if (date < cutoff)
+                    it_date = weather_map.erase(it_date);
+                else
+                    ++it_date;
+            }
+            else
+            {
+                it_date = weather_map.erase(it_date);   //无效日期直接清除
+            }
+        }
+        if (weather_map.empty())
+            iter = m_history_weather_list.erase(iter);
+        else
+            ++iter;
+    }
+}
+
 bool CHistoryWeatherMgr::Save() const
 {
     std::wstring data_path = g_data.m_config_dir + L"History_weather.dat";
@@ -110,7 +142,8 @@ bool CHistoryWeatherMgr::Load()
         }
         catch (CArchiveException* exception)
         {
-            // 捕获序列化时出现的异常
+            //捕获序列化时出现的异常。MFC的指针式异常必须手动Delete，否则每次加载损坏文件都泄漏一个异常对象
+            exception->Delete();
         }
         // 关闭对象
         ar.Close();

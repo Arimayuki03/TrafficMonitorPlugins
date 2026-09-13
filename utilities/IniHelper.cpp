@@ -137,20 +137,25 @@ namespace utilities
         }
     }
 
+    //以位掩码的方式写入bool数组，注意最多支持32个bool
     void CIniHelper::WriteBoolArray(const wchar_t * AppName, const wchar_t * KeyName, const bool * values, int size)
     {
-        int value{};
+        if (size > 32)
+            size = 32;      //位掩码最多32位
+        unsigned int value{};
         for (int i{}; i < size; i++)
         {
             if (values[i])
-                value |= (1 << i);
+                value |= (1u << i);
         }
-        return WriteInt(AppName, KeyName, value);
+        return WriteInt(AppName, KeyName, static_cast<int>(value));
     }
 
     void CIniHelper::GetBoolArray(const wchar_t * AppName, const wchar_t * KeyName, bool * values, int size, bool default_value) const
     {
-        int value = GetInt(AppName, KeyName, 0);
+        if (size > 32)
+            size = 32;      //位掩码最多32位
+        int value = GetInt(AppName, KeyName, default_value ? -1 : 0);
         for (int i{}; i < size; i++)
         {
             values[i] = ((value >> i) % 2 != 0);

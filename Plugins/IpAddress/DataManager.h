@@ -32,9 +32,11 @@ public:
 
     void UpdateConnections();
     bool GetLocalIPv4Address(std::wstring& ipv4address);
+    std::wstring GetCurrentIPv4Address();       //获取当前选择的连接的IPv4地址（结果同时保存在m_current_ipv4中）
     const std::vector<NetWorkConection>& GetAllConnections() const;
 
     SettingData m_setting_data;
+    std::wstring m_current_ipv4;                //当前显示的IPv4地址，避免GetItemValueText使用函数级static变量
 
 private:
     static CDataManager m_instance;

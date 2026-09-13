@@ -53,14 +53,20 @@ bool CWeatherItem::IsCustomDraw() const
 int CWeatherItem::GetItemWidthEx(void* hDC) const
 {
     CDC* pDC = CDC::FromHandle((HDC)hDC);
+    //在锁内复制天气文本，避免与后台刷新线程产生数据竞争
+    std::wstring weather_text;
+    {
+        std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
+        weather_text = (g_data.m_setting_data.m_use_weather_icon ? g_data.GetWeather().ToStringTemperature() : g_data.GetWeather().ToString());
+    }
     if (g_data.m_setting_data.m_use_weather_icon)
     {
         int icon_width = m_double_line ? g_data.DPI(36) : g_data.DPI(20);
-        return icon_width + pDC->GetTextExtent(g_data.GetWeather().ToStringTemperature().c_str()).cx;
+        return icon_width + pDC->GetTextExtent(weather_text.c_str()).cx;
     }
     else
     {
-        return pDC->GetTextExtent(g_data.GetWeather().ToString().c_str()).cx;
+        return pDC->GetTextExtent(weather_text.c_str()).cx;
     }
 }
 
@@ -72,11 +78,19 @@ void CWeatherItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mod
     CDC* pDC = CDC::FromHandle((HDC)hDC);
     //矩形区域
     CRect rect(CPoint(x, y), CSize(w, h));
+    //在锁内复制需要显示的天气数据，避免与后台刷新线程产生数据竞争
+    std::wstring weather_type;
+    std::wstring weather_text;
+    {
+        std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
+        weather_type = g_data.GetWeather().m_type;
+        weather_text = (g_data.m_setting_data.m_use_weather_icon ? g_data.GetWeather().ToStringTemperature() : g_data.GetWeather().ToString());
+    }
     if (g_data.m_setting_data.m_use_weather_icon)
     {
         //绘制天气图标
         const int icon_size{ m_double_line ? g_data.DPI(24) : g_data.DPI(16) };
-        HICON hIcon = g_data.GetWeatherIcon(g_data.GetWeather().m_type, m_double_line);
+        HICON hIcon = g_data.GetWeatherIcon(weather_type, m_double_line);
         CPoint icon_point{ rect.TopLeft() };
         icon_point.x = rect.left + g_data.DPI(2);
         icon_point.y = rect.top + (rect.Height() - icon_size) / 2;
@@ -84,11 +98,11 @@ void CWeatherItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mod
         //绘制天气文本
         CRect rc_text{ rect };
         rc_text.left += (icon_size + g_data.DPI(4));
-        pDC->DrawText(g_data.GetWeather().ToStringTemperature().c_str(), rc_text, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        pDC->DrawText(weather_text.c_str(), rc_text, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     else
     {
-        pDC->DrawText(g_data.GetWeather().ToString().c_str(), rect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        pDC->DrawText(weather_text.c_str(), rect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 }
 

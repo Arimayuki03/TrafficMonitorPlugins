@@ -170,7 +170,8 @@ void CLoudnessMeterItem::DrawItem(void* hDC, int x, int y, int w, int h, bool da
     if (g_data.m_setting_data.show_db || m_state == DB_MUTE)
     {
         InitFont(pDC);
-        pDC->SelectObject(&m_font);
+        //保存宿主DC原来的字体，绘制完成后恢复，避免宿主DC的字体状态被永久改动
+        HGDIOBJ old_font = pDC->SelectObject(&m_font);
         wchar_t buff[64]{};
         if (m_state == DB_INVALID)
             StringCchCopyW(buff, 64, L"--.-- db");
@@ -198,5 +199,8 @@ void CLoudnessMeterItem::DrawItem(void* hDC, int x, int y, int w, int h, bool da
         Gdiplus::RectF rect_gdiplus = Gdiplus::RectF(bar_rect.left, bar_rect.top, bar_rect.Width(), bar_rect.Height());
         //绘制文本
         graphics.DrawString(buff, -1, &font, rect_gdiplus, &format, &brush);
+
+        //恢复宿主DC原来的字体
+        pDC->SelectObject(old_font);
     }
 }

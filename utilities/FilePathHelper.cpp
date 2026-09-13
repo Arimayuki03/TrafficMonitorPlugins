@@ -104,8 +104,12 @@ namespace utilities
 
     std::wstring CFilePathHelper::GetFilePathWithoutExtension() const
     {
-        size_t index;
+        size_t index, index1;
         index = m_file_path.rfind('.');
+        index1 = m_file_path.find_last_of(L"\\/");
+        //点号必须位于最后一段路径中，否则不能视为扩展名（如“C:\my.dir\file”应返回“C:\my.dir\file”）
+        if (index == std::wstring::npos || (index1 != std::wstring::npos && index < index1))
+            return m_file_path;
         return m_file_path.substr(0, index);
     }
 }

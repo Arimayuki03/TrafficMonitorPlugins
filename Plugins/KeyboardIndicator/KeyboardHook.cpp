@@ -46,6 +46,7 @@ CKeyboardHook::~CKeyboardHook()
 
 void CKeyboardHook::Start()
 {
+    CLock lock(m_cs);
     //检查钩子线程是否仍在运行
     if (m_thread != NULL)
     {
@@ -66,10 +67,30 @@ void CKeyboardHook::Start()
 
 void CKeyboardHook::Stop()
 {
-    if (m_thread_id != 0)
+    CLock lock(m_cs);
+    HANDLE h_thread = m_thread;
+    DWORD thread_id = m_thread_id;
+    bool on_hook_thread = (thread_id != 0 && ::GetCurrentThreadId() == thread_id);
+    if (h_thread != NULL)
     {
-        //通知钩子线程退出。此函数只发送消息不等待，因此可以在卸载DLL时安全调用
-        ::PostThreadMessageW(m_thread_id, WM_QUIT, 0, 0);
+        if (!on_hook_thread)
+        {
+            //通知钩子线程退出，并等待其真正结束后再销毁临界区，
+            //避免线程还在EnterCriticalSection时临界区已被删除（未定义行为）
+            if (thread_id != 0)
+                ::PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
+            ::WaitForSingleObject(h_thread, 3000);
+        }
+        //回收线程句柄
+        ::CloseHandle(h_thread);
+        if (m_thread == h_thread)
+            m_thread = NULL;
+        m_thread_id = 0;
+    }
+    else if (thread_id != 0 && !on_hook_thread)
+    {
+        ::PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
+        m_thread_id = 0;
     }
 }
 
@@ -81,6 +102,13 @@ unsigned int WINAPI CKeyboardHook::ThreadProc(LPVOID /*lpParameter*/)
     ::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCWSTR)&ThreadProc, &h_module);
     //安装低级键盘钩子
     HHOOK h_hook = ::SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, h_module, 0);
+    if (h_hook == NULL)
+    {
+        //安装失败时退出线程，使Start()下次调用时能检测到线程已结束并重新尝试安装
+        if (h_module != NULL)
+            ::FreeLibraryAndExitThread(h_module, 0);
+        return 1;
+    }
     //消息循环，低级钩子要求安装它的线程必须不断取消息，否则钩子会被系统移除
     MSG msg;
     while (::GetMessageW(&msg, NULL, 0, 0) > 0)
@@ -125,6 +153,15 @@ void CKeyboardHook::AddKey(UINT vk, UINT scan_code, bool extended)
     //忽略无效的虚拟键码
     if (vk == 0)
         return;
+    {
+        //先检查按键是否已在列表中(自动重复按键)，避免每次重复按键都在钩子回调中调用GetKeyName
+        CLock lock(m_cs);
+        for (const auto& key : m_pressed_keys)
+        {
+            if (key.vk == vk)
+                return;
+        }
+    }
     KeyInfo info;
     info.vk = vk;
     info.scan_code = scan_code;
@@ -133,7 +170,7 @@ void CKeyboardHook::AddKey(UINT vk, UINT scan_code, bool extended)
     info.down_tick = GetTickCount64();
     info.name = GetKeyName(vk, scan_code, extended);
     CLock lock(m_cs);
-    //如果按键已经在列表中(自动重复按键)，则不重复添加
+    //再次检查，防止在获取按键名期间该按键已被其他消息添加
     for (const auto& key : m_pressed_keys)
     {
         if (key.vk == vk)
@@ -164,10 +201,10 @@ bool CKeyboardHook::GetDisplayText(std::wstring& text, int show_time_ms)
     CLock lock(m_cs);
     if (!m_pressed_keys.empty())
     {
-        //按住Ctrl/Shift等普通字符输入不放超过5分钟视为按键状态丢失(如锁屏期间丢失KEYUP消息)，将其清除
+        //任何按键(包括Ctrl/Shift等修饰键)按住超过5分钟视为按键状态丢失(如锁屏期间丢失KEYUP消息)，将其清除
         for (auto iter = m_pressed_keys.begin(); iter != m_pressed_keys.end();)
         {
-            if (!iter->is_modifier && now - iter->down_tick > 300000)
+            if (now - iter->down_tick > 300000)
                 iter = m_pressed_keys.erase(iter);
             else
                 ++iter;

@@ -37,4 +37,5 @@ private:
     std::map<UINT, CString> m_string_table;
     std::map<UINT, HICON> m_icons;
     int m_dpi{ 96 };
+    ULONG_PTR m_gdiplus_token{ 0 };     //GDI+初始化令牌
 };

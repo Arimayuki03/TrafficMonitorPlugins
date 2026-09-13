@@ -39,8 +39,9 @@ const wchar_t* CBattery::GetTooltipInfo()
 
 void CBattery::DataRequired()
 {
-    //获取系统电量
-    GetSystemPowerStatus(&g_data.m_sysPowerStatus);
+    //获取系统电量，失败时保留上一次的数据
+    if (!GetSystemPowerStatus(&g_data.m_sysPowerStatus))
+        return;
     //g_data.m_sysPowerStatus.BatteryFlag = 1;
     //g_data.m_sysPowerStatus.BatteryLifePercent = 80;
     //生成鼠标提示信息
@@ -72,7 +73,6 @@ ITMPlugin::OptionReturn CBattery::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CBattery::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:

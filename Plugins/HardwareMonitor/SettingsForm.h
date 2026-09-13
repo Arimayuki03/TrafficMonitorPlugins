@@ -86,6 +86,10 @@ namespace HardwareMonitor {
         ItemInfo& GetSelectedItemInfo();
         void EnableControls();
 
+        //ListBox显示的项是items_info的子集(传感器缺失的项不显示)，
+        //用这个映射表保存ListBox索引到items_info索引的对应关系
+        List<int>^ m_list_to_info_index{ gcnew List<int>() };
+
         void listBox_SelectedIndexChanged(System::Object^ sender, System::EventArgs^ e);
         void OnDecimalPlaceComboBoxSelectedIndexChanged(Object^ sender, EventArgs^ e);
         void OnFormClosing(Object^ sender, FormClosingEventArgs^ e);

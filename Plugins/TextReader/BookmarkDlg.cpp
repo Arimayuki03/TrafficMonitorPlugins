@@ -72,9 +72,13 @@ BOOL CBookmarkDlg::OnInitDialog()
     int index{};
     for (const auto& bookmark_pos : g_data.GetBookmark())
     {
-        //书签位置的百分比
+        //书签位置的百分比(文本为空时避免除以0)
         wchar_t buff[32];
-        swprintf_s(buff, 16, L"%.2f%%", static_cast<double>(bookmark_pos) * 100 / g_data.GetTextContexts().size());
+        const size_t text_size = g_data.GetTextContexts().size();
+        if (text_size > 0)
+            swprintf_s(buff, 16, L"%.2f%%", static_cast<double>(bookmark_pos) * 100 / text_size);
+        else
+            swprintf_s(buff, 16, L"%.2f%%", 0.0);
         m_list_ctrl.InsertItem(index, buff);
         m_list_ctrl.SetItemData(index, bookmark_pos);
         //书签内容

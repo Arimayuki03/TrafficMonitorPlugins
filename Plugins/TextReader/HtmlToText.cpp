@@ -33,7 +33,7 @@ bool CHtmlToText::ParseFromFile(const std::wstring& file_path)
     std::string text = HtmlToText(html);
     m_text = utilities::StringHelper::StrToUnicode(text.c_str(), true);
 
-    return false;
+    return true;
 }
 
 const std::wstring& CHtmlToText::GetText()
@@ -97,8 +97,9 @@ std::string CHtmlToText::HtmlToText(const std::string& html)
 {
     std::string text;
     //提取p和h标签
+    //注意：不能写成 index < html.size() - 4，当html长度不足4时size_t减法下溢会导致substr越界
     size_t index = 0;
-    while (index < html.size() - 4)
+    while (index + 4 < html.size())
     {
         std::string cur_text;
         if (html.substr(index, 3) == "<p>")

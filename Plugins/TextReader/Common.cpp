@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "Common.h"
 #include <afxinet.h>    //用于支持使用网络相关的类
+#include <algorithm>
 
 std::wstring CCommon::StrToUnicode(const char* str, bool utf8)
 {
@@ -72,6 +73,37 @@ bool CCommon::IsUTF8Bytes(const char* data)
     else return true;
 }
 
+std::wstring CCommon::ConvertToUnicode(const std::string& content)
+{
+    if (content.size() >= 2)
+    {
+        const unsigned char* data = reinterpret_cast<const unsigned char*>(content.data());
+        //UTF-16 LE BOM
+        if (data[0] == 0xFF && data[1] == 0xFE)
+        {
+            std::wstring result((content.size() - 2) / 2, L'\0');
+            if (!result.empty())
+                memcpy(&result[0], content.data() + 2, result.size() * 2);
+            return result;
+        }
+        //UTF-16 BE BOM
+        if (data[0] == 0xFE && data[1] == 0xFF)
+        {
+            std::wstring result((content.size() - 2) / 2, L'\0');
+            for (size_t i = 0; i < result.size(); i++)
+                result[i] = static_cast<wchar_t>((data[2 + i * 2] << 8) | data[3 + i * 2]);
+            return result;
+        }
+        //UTF-8 BOM，去除BOM后按UTF-8转换
+        if (content.size() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
+        {
+            return StrToUnicode(content.c_str() + 3, true);
+        }
+    }
+    bool is_utf8 = IsUTF8Bytes(content.c_str());    //判断编码类型
+    return StrToUnicode(content.c_str(), is_utf8);  //转换成Unicode
+}
+
 void CCommon::StringSplit(const std::wstring& str, const std::wstring& div_str, std::vector<std::wstring>& results, bool skip_empty)
 {
     results.clear();
@@ -117,13 +149,17 @@ bool CCommon::GetURL(const std::wstring& url, std::string& result, bool utf8, co
         pfile->QueryInfoStatusCode(dwStatusCode);
         if (dwStatusCode == HTTP_STATUS_OK)
         {
-            CString content;
-            CString data;
-            while (pfile->ReadString(data))
+            //按原始字节读取响应体。不能把Unicode构建的CString按char*重解释（见修复文档FIX-003）
+            result.clear();
+            char buff[4096];
+            UINT read_count = 0;
+            while ((read_count = pfile->Read(buff, sizeof(buff))) > 0)
             {
-                content += data;
+                result.append(buff, read_count);
             }
-            result = (const char*)content.GetString();
+            //与原按行读取的行为保持一致：去掉换行符
+            result.erase(std::remove(result.begin(), result.end(), '\r'), result.end());
+            result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
             succeed = true;
         }
         pfile->Close();

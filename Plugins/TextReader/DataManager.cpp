@@ -4,6 +4,7 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
+#include <memory>
 #include "../utilities/bass64/base64.h"
 #include "../utilities/FilePathHelper.h"
 #include "../utilities/Common.h"
@@ -162,11 +163,18 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
     //打开url
     if (CCommon::IsURL(file_path))
     {
-        static std::wstring url;
-        url = file_path;
-        //在后台线程中打开url
-        if (!m_is_thread_runing)
-            AfxBeginThread(ThreadCallback, (LPVOID)url.c_str());
+        //在后台线程中打开url。检查-置位-创建线程都在UI线程中完成，避免产生两个并发写线程
+        bool expected = false;
+        if (m_is_thread_runing.compare_exchange_strong(expected, true))
+        {
+            ThreadParam* param = new ThreadParam{ file_path };
+            CWinThread* thread = AfxBeginThread(ThreadCallback, (LPVOID)param);
+            if (thread == nullptr)
+            {
+                delete param;
+                m_is_thread_runing = false;
+            }
+        }
     }
     //打开本地文件
     else
@@ -206,9 +214,14 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
             //读取数据
             char* buff = new char[length + 1];
             file.read(buff, length);
+            auto read_length = file.gcount();
             file.close();
-            buff[length] = '\0';
-            std::string str_contents(buff, length);
+            if (read_length <= 0)
+            {
+                delete[] buff;
+                return false;
+            }
+            std::string str_contents(buff, read_length);
             delete[] buff;
 
             //判断是否是base64编码
@@ -218,8 +231,8 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
                 str_contents = utilities::Base64Decode(str_contents);
             }
 
-            bool is_utf8 = CCommon::IsUTF8Bytes(str_contents.c_str());                              //判断编码类型
-            m_text_contents = CCommon::StrToUnicode(str_contents.c_str(), is_utf8);	                //转换成Unicode
+            //识别编码(BOM/UTF-16/UTF-8/ANSI)并转换成Unicode
+            m_text_contents = CCommon::ConvertToUnicode(str_contents);
         }
 
         //解析章节
@@ -343,14 +356,37 @@ void CDataManager::CheckFileChange()
 
 UINT CDataManager::ThreadCallback(LPVOID dwUser)
 {
-    m_instance.m_is_thread_runing = true;
-    const wchar_t* url = (const wchar_t*)dwUser;
-    std::string url_contents;
+    //线程参数在堆上分配，使用完后由本线程释放
+    std::unique_ptr<ThreadParam> param(reinterpret_cast<ThreadParam*>(dwUser));
     CHtmlToText html_to_text;
-    html_to_text.ParseFromUrl(url);
-    m_instance.m_text_contents = html_to_text.GetText();
-    m_instance.m_chapter_parser.Parse();
-
+    html_to_text.ParseFromUrl(param->url);
+    {
+        //只把结果写入临时变量，由UI线程通过ApplyPendingText换入共享数据，避免与UI线程产生数据竞争
+        std::lock_guard<std::mutex> lock(m_instance.m_data_mutex);
+        m_instance.m_pending_text = html_to_text.GetText();
+        m_instance.m_has_pending_text = true;
+    }
     m_instance.m_is_thread_runing = false;
     return 0;
+}
+
+void CDataManager::ApplyPendingText()
+{
+    bool has_pending = false;
+    std::wstring pending;
+    {
+        std::lock_guard<std::mutex> lock(m_data_mutex);
+        has_pending = m_has_pending_text;
+        if (has_pending)
+        {
+            pending.swap(m_pending_text);
+            m_has_pending_text = false;
+        }
+    }
+    if (has_pending)
+    {
+        //m_chapter_parser持有m_text_contents的引用，这里只赋值不重新构造，引用保持有效
+        m_text_contents = std::move(pending);
+        m_chapter_parser.Parse();
+    }
 }

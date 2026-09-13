@@ -19,7 +19,7 @@ public:
     SettingData m_data;
 
 private:
-    CSize m_min_size;
+    CSize m_min_size{ 0, 0 };
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持

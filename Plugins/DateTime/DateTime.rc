@@ -382,7 +382,7 @@ BEGIN
     IDS_JAN                 "Jan"
     IDS_FEB                 "Feb"
     IDS_MAR                 "Mar"
-    IDS_ARI                 "Ari"
+    IDS_ARI                 "Apr"
     IDS_MAY                 "May"
     IDS_JUN                 "Jun"
 END
@@ -390,7 +390,7 @@ END
 STRINGTABLE
 BEGIN
     IDS_JUL                 "Jul"
-    IDS_AUT                 "Aut"
+    IDS_AUT                 "Aug"
     IDS_SEP                 "Sep"
     IDS_OCT                 "Oct"
     IDS_NOV                 "Nov"

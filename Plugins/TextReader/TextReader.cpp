@@ -40,7 +40,10 @@ const wchar_t* CTextReader::GetTooltipInfo()
         std::wstring cur_chapter = g_data.GetChapter().GetCurrentChapterTitle();
         if (!cur_chapter.empty())
             stream << g_data.StringRes(IDS_CHAPTER).GetString() << L": " << cur_chapter << L"\r\n";
-        stream << g_data.StringRes(IDS_READ_POSITION).GetString() << L": " << std::setiosflags(std::ios::fixed) << std::setprecision(2) << static_cast<double>(g_data.m_setting_data.current_position) * 100 / g_data.GetTextContexts().size() << "%";
+        const size_t text_size = g_data.GetTextContexts().size();
+        //文本为空时避免除以0
+        if (text_size > 0)
+            stream << g_data.StringRes(IDS_READ_POSITION).GetString() << L": " << std::setiosflags(std::ios::fixed) << std::setprecision(2) << static_cast<double>(g_data.m_setting_data.current_position) * 100 / text_size << "%";
         tooltip_info = stream.str();
     }
     return tooltip_info.c_str();
@@ -48,7 +51,8 @@ const wchar_t* CTextReader::GetTooltipInfo()
 
 void CTextReader::DataRequired()
 {
-    //TODO: 在此添加获取监控数据的代码
+    //把后台线程下载完成的文本换入共享数据(此函数由宿主在UI线程中调用)
+    g_data.ApplyPendingText();
 }
 
 ITMPlugin::OptionReturn CTextReader::ShowOptionsDialog(void* hParent)
@@ -113,12 +117,13 @@ void CTextReader::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
 void CTextReader::ShowContextMenu(CWnd* pWnd)
 {
     CMenu* context_menu = m_menu.GetSubMenu(0);
+    if (context_menu == nullptr)
+        return;
 
     //设置菜单状态
     context_menu->CheckMenuItem(ID_START_AUTO_READ, MF_BYCOMMAND | (g_data.m_setting_data.auto_read ? MF_CHECKED : MF_UNCHECKED));
     context_menu->CheckMenuItem(ID_HIDE, MF_BYCOMMAND | (g_data.m_boss_key_pressed ? MF_CHECKED : MF_UNCHECKED));
 
-    if (context_menu != nullptr)
     {
         CPoint point1;
         GetCursorPos(&point1);

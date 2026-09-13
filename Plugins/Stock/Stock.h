@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 #include <mutex>
+#include <atomic>
 
 constexpr auto kSH = L"sh";    // 上海
 constexpr auto kSZ = L"sz";    // 深圳
@@ -51,7 +52,13 @@ public:
     void UpdateKLine();
 
 public:
-    std::mutex m_stockDataMutex;
+    //保护股票数据(stocks map和StockInfo)的互斥量。
+    //后台刷新线程与UI线程都会访问这些数据，必须用recursive_mutex保护(部分锁内操作会再次加锁)
+    std::recursive_mutex m_stockDataMutex;
+    //分时数据(悬浮窗K线)下载线程是否正在运行
+    std::atomic<bool> m_timeline_thread_running{ false };
+    //保护悬浮窗对象生命周期(m_pFloatingWnd的创建与销毁)。悬浮窗网络线程销毁前检查时也要加锁
+    std::mutex m_wndMutex;
 
 private:
     static UINT ThreadCallback(LPVOID dwUser);
@@ -62,12 +69,12 @@ private:
     static Stock m_instance;
     vector<StockItem> m_items;
 
-    bool m_is_thread_runing{};
+    std::atomic<bool> m_is_thread_runing{ false };
     CManagerDialog *m_option_dlg{};         // 保存选项设置对话框的句柄
-    unsigned __int64 m_last_request_time{}; // 上次请求的时间
+    std::atomic<unsigned __int64> m_last_request_time{ 0 }; // 上次请求的时间
+    std::atomic<bool> m_update_in_progress{ false };        // 是否正在更新行情(用于在UI线程中刷新菜单状态)
     CMenu m_menu;
 
-    std::mutex m_wndMutex;
     CFloatingWnd *m_pFloatingWnd;
 };
 

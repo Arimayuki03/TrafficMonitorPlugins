@@ -20,6 +20,8 @@ CMessageDlg::CMessageDlg(CWnd* pParent /*=nullptr*/)
 
 CMessageDlg::~CMessageDlg()
 {
+    if (m_h_icon != nullptr)
+        DestroyIcon(m_h_icon);
 }
 
 void CMessageDlg::SetTitle(const CString& title)
@@ -53,6 +55,7 @@ BOOL CMessageDlg::OnInitDialog()
     // TODO:  在此添加额外的初始化
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, g_data.DPI(16), g_data.DPI(16), 0);
+    m_h_icon = hIcon;
     SetIcon(hIcon, FALSE);
 
     //获取初始时的大小

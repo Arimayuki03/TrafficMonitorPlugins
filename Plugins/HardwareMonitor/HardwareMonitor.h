@@ -39,6 +39,11 @@ namespace HardwareMonitor
         //成功返回true，否则返回false
         bool RemoveDisplayItem(int index);
 
+        //重建显示项目列表。宿主会缓存GetItem返回的指针，因此条目对象一旦创建就不能销毁，
+        //已创建的对象保存在m_item_pool中(只增不减)，m_items只是这些对象的引用列表
+        void RebuildDisplayItems();
+        CHardwareMonitorItem* EnsureDisplayItem(const ItemInfo& item_info);
+
         std::wstring GetItemName(const std::wstring& identifier);
 
         const std::wstring& GetConfigPath() const;
@@ -57,7 +62,8 @@ namespace HardwareMonitor
 
     private:
         static CHardwareMonitor* m_pIns;
-        std::vector<CHardwareMonitorItem> m_items;
+        std::vector<CHardwareMonitorItem*> m_items;         //当前显示的监控项目，指向m_item_pool中的对象
+        std::vector<CHardwareMonitorItem*> m_item_pool;     //所有创建过的监控项目对象，只增不减，保证宿主缓存的IPluginItem*不会失效
         std::wstring m_config_path;
         std::map<std::wstring, std::wstring> m_item_names;  //保存每个Sensor的identifier和名称的map
 

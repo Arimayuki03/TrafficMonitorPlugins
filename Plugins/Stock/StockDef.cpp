@@ -27,6 +27,9 @@ using namespace STOCK;
 
 void STOCK::StockMarket::LoadRealtimeDataByJson(std::string json)
 {
+  //后台刷新线程会修改stocks map和StockInfo，UI线程同时读取，必须加锁保护
+  std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
+
   ClearRealtimeData();
 
   if (json == "")
@@ -276,7 +279,7 @@ void STOCK::StockMarket::LoadTimelineDataByJson(std::wstring stock_id, CString *
 {
   auto data = g_data.GetStockData(stock_id);
   {
-    std::lock_guard<std::mutex> lock(Stock::Instance().m_stockDataMutex);
+    std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
     data->clearTimelinePoint();
     if (pData)
     {
@@ -367,19 +370,10 @@ void STOCK::StockData::addTimelinePoint(const CString &json_data)
   yyjson_doc *doc = yyjson_read(_json_data.c_str(), _json_data.size(), 0);
   if (doc != nullptr)
   {
+    //解析完成后必须释放文档，所有路径都不能遗漏
     yyjson_val *root = yyjson_doc_get_root(doc);
-    if (root == nullptr)
-    {
-      return;
-    }
-
-    yyjson_val *result = yyjson_obj_get(root, "result");
-    if (result == nullptr)
-    {
-      return;
-    }
-
-    yyjson_val *data = yyjson_obj_get(result, "data");
+    yyjson_val *result = (root != nullptr ? yyjson_obj_get(root, "result") : nullptr);
+    yyjson_val *data = (result != nullptr ? yyjson_obj_get(result, "data") : nullptr);
     if (data != nullptr && yyjson_is_arr(data))
     {
       yyjson_val *item;
@@ -398,5 +392,6 @@ void STOCK::StockData::addTimelinePoint(const CString &json_data)
         }
       }
     }
+    yyjson_doc_free(doc);
   }
 }

@@ -18,11 +18,17 @@ CDataManager::CDataManager()
     //初始化GDI+
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, NULL);
+
+    //初始状态下视为无电池，避免首次获取电量前显示为0%
+    m_sysPowerStatus.BatteryFlag = 128;
 }
 
 CDataManager::~CDataManager()
 {
     SaveConfig();
+    //与构造函数中的GdiplusStartup配对
+    if (m_gdiplusToken != 0)
+        Gdiplus::GdiplusShutdown(m_gdiplusToken);
 }
 
 CDataManager& CDataManager::Instance()
@@ -118,7 +124,9 @@ HICON CDataManager::GetIcon(UINT id)
     {
         AFX_MANAGE_STATE(AfxGetStaticModuleState());
         HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(id), IMAGE_ICON, DPI(16), DPI(16), 0);
-        m_icons[id] = hIcon;
+        //加载失败时不缓存，允许下次重试
+        if (hIcon != nullptr)
+            m_icons[id] = hIcon;
         return hIcon;
     }
 }
@@ -136,7 +144,8 @@ bool CDataManager::IsCharging() const
 
 std::wstring CDataManager::GetBatteryString() const
 {
-    if (m_sysPowerStatus.BatteryFlag == 128)
+    //BatteryFlag==128表示无系统电池；BatteryLifePercent==255表示电量未知
+    if (m_sysPowerStatus.BatteryFlag == 128 || m_sysPowerStatus.BatteryLifePercent == 255)
     {
         return L"N/A";
     }

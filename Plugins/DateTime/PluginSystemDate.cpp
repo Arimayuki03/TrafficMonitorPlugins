@@ -33,6 +33,8 @@ const wchar_t* CPluginSystemDate::GetItemValueSampleText() const
     GetLocalTime(&sample_time);
     sample_time.wHour = 10;
     sample_time.wMinute = 59;
-    sample_time.wMinute = 59;
-    return g_data.m_format_helper.GetDateTimeByFormat(g_data.m_setting_data.date_format.c_str(), sample_time);
+    sample_time.wSecond = 59;
+    //GetDateTimeByFormat按值返回CString，不能直接返回其临时对象的内部指针，需保存到成员中
+    g_data.m_sample_date_text = CDataTimeFormatHelper::GetDateTimeByFormat(g_data.m_setting_data.date_format.c_str(), sample_time);
+    return g_data.m_sample_date_text.GetString();
 }

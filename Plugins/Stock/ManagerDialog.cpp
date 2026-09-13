@@ -150,6 +150,15 @@ void CManagerDialog::OnBnClickedOk()
     m_data.m_kline_width = _ttoi(value);
     GetDlgItemText(IDC_KLINE_HEIGHT_EDIT, value);
     m_data.m_kline_height = _ttoi(value);
+    //钳制K线图宽高到合理范围，避免0或负数导致悬浮窗创建失败
+    if (m_data.m_kline_width < 100)
+        m_data.m_kline_width = 100;
+    if (m_data.m_kline_width > 2000)
+        m_data.m_kline_width = 2000;
+    if (m_data.m_kline_height < 60)
+        m_data.m_kline_height = 60;
+    if (m_data.m_kline_height > 2000)
+        m_data.m_kline_height = 2000;
     g_data.m_setting_data = m_data;
     g_data.SaveConfig();
     if (stock_code_changed)

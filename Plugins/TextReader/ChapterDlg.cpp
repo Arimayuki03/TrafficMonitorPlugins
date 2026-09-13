@@ -93,7 +93,7 @@ void CChapterDlg::OnOK()
     if (m_selected_changed && IsWindow(m_lst_box.m_hWnd))
     {
         int index = m_lst_box.GetCurSel();
-        if (index >= 0 && index <= m_chapter_index.size())
+        if (index >= 0 && index < static_cast<int>(m_chapter_index.size()))
             m_selected_position = m_chapter_index[index];
     }
 
