@@ -1,4 +1,5 @@
 ﻿#include <string>
+#include <array>
 #include "base64.h"
 #include <algorithm>
 
@@ -102,9 +103,15 @@ std::string Base64Decode(const std::string& str_in)
 
 bool IsBase64Code(const std::string& str, size_t max_length)
 {
-    //注意：循环上限必须是base64EncodeTable的长度（65，含结尾'\0'），
-    //不能使用base64DecodeTable的大小，否则会越界读编码表后面的内存
-    static const size_t table_length = sizeof(base64EncodeTable);
+    //64个合法base64字符的256项快速查表，只在首次调用时初始化一次(线程安全)。
+    //表内容来自base64EncodeTable(长度65，含结尾'\0')，不能使用base64DecodeTable，
+    //否则会读越界
+    static const std::array<bool, 256> in_base64_table = []() {
+        std::array<bool, 256> table{};
+        for (size_t j = 0; j < sizeof(base64EncodeTable) - 1; j++)
+            table[static_cast<unsigned char>(base64EncodeTable[j])] = true;
+        return table;
+    }();
     size_t length = str.size();
     if (max_length < length)
         length = max_length;
@@ -118,17 +125,7 @@ bool IsBase64Code(const std::string& str, size_t max_length)
                 return true;
             return false;
         }
-        //字符必须在base64编码表中
-        bool in_table = false;
-        for (size_t j = 0; j < table_length - 1; j++)
-        {
-            if (base64EncodeTable[j] == ch)
-            {
-                in_table = true;
-                break;
-            }
-        }
-        if (!in_table)
+        if (!in_base64_table[static_cast<unsigned char>(ch)])
             return false;
     }
     return true;

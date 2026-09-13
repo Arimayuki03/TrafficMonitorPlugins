@@ -72,6 +72,15 @@ void CDataManager::LoadConfig(const std::wstring &config_dir)
     m_setting_data.m_color_with_price = ini.GetBool(L"config", L"color_with_price", true);
     m_setting_data.m_kline_width = ini.GetInt(L"config", L"kline_width", 450);
     m_setting_data.m_kline_height = ini.GetInt(L"config", L"kline_height", 210);
+    //与设置对话框一致钳制K线图尺寸，防止手改ini产生0/负值/超大尺寸(FIX-062只覆盖了对话框路径)
+    if (m_setting_data.m_kline_width < 100)
+        m_setting_data.m_kline_width = 100;
+    if (m_setting_data.m_kline_width > 2000)
+        m_setting_data.m_kline_width = 2000;
+    if (m_setting_data.m_kline_height < 60)
+        m_setting_data.m_kline_height = 60;
+    if (m_setting_data.m_kline_height > 2000)
+        m_setting_data.m_kline_height = 2000;
 }
 
 void CDataManager::SaveConfig()
@@ -178,7 +187,12 @@ static double generateRandomDouble()
 void CDataManager::RequestRealtimeData()
 {
     TRACE(L"RequestRealtimeData...\n");
-    std::vector<std::wstring> codes = m_setting_data.m_stock_codes;
+    //本函数在后台线程运行，股票代码列表可能被UI线程整体赋值，复制前必须加锁
+    std::vector<std::wstring> codes;
+    {
+        std::lock_guard<std::mutex> lock(m_settings_mutex);
+        codes = m_setting_data.m_stock_codes;
+    }
     // https://hq.sinajs.cn/?_=0.1155744778269292&list=sz002497
     std::wstring url{L"https://hq.sinajs.cn/?"};
     std::vector<std::wstring> params;

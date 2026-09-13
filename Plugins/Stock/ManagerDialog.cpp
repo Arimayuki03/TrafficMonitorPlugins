@@ -93,7 +93,8 @@ void CManagerDialog::OnDelBtnClick()
 {
     int curSelPos = m_stock_listbox.GetCurSel();
     Log1("OnDelBtnClick: %d\n", curSelPos);
-    if (curSelPos < 0 || curSelPos > m_data.m_stock_codes.size())
+    //注意这里是>=：等于size()时erase(begin()+size())会越界
+    if (curSelPos < 0 || curSelPos >= static_cast<int>(m_data.m_stock_codes.size()))
     {
         return;
     }

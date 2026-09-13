@@ -28,17 +28,23 @@ const wchar_t* CWeatherItem::GetItemValueText() const
 
 const wchar_t* CWeatherItem::GetItemValueSampleText() const
 {
-    const WeatherInfo& weather_info{ g_data.GetWeather() };
+    //GetWeather()返回后台解析线程会写的共享数据引用，读取字段前必须加锁
+    //(读取结果只用于选择返回哪个字面量，无需复制字符串)
+    bool is_cur_weather;
+    {
+        std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
+        is_cur_weather = g_data.GetWeather().is_cur_weather;
+    }
     if (g_data.m_setting_data.m_use_weather_icon)
     {
-        if (weather_info.is_cur_weather)
+        if (is_cur_weather)
             return L"20℃";
         else
             return L"20~20℃";
     }
     else
     {
-        if (weather_info.is_cur_weather)
+        if (is_cur_weather)
             return L"多云 20℃";
         else
             return L"多云 20~20℃";

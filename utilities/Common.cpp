@@ -12,9 +12,10 @@ namespace utilities
             return false;
         //获取文件长度
         file.seekg(0, file.end);
-        size_t length = file.tellg();
-        if (length == 0)
-            return false;
+        const auto length_signed = file.tellg();
+        if (length_signed <= 0)
+            return false;   //无法获取长度(目录/管道等特殊文件tellg返回-1)或空文件
+        size_t length = static_cast<size_t>(length_signed);
         file.seekg(0, file.beg);
 
         char* buff = new char[length];

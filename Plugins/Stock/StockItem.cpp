@@ -16,15 +16,8 @@ const wchar_t *StockItem::GetItemName() const
     auto data = g_data.GetStockData(stock_id);
     if (data->info.is_ok)
     {
-        if (data)
-        {
-            item_name = data->info.displayName;
-        }
-        else
-        {
-            item_name = g_data.StringRes(IDS_PLUGIN_ITEM_NAME).GetString();
-            item_name += std::to_wstring(index);
-        }
+        //GetStockData不会返回空指针(miss时插入新项)，无需判空
+        item_name = data->info.displayName;
     }
     else
     {

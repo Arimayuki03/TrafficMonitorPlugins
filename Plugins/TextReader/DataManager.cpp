@@ -286,7 +286,9 @@ void CDataManager::PageDown(int step)
         step = m_page_step;
     if (m_boss_key_pressed)
         return;
-    const int MAX_POS = static_cast<int>(GetTextContexts().size() - 2);
+    //文本不足2字符时size()-2会无符号下溢，先做守卫(空文本时MAX_POS取0，翻页动作被钳制在开头)
+    const size_t text_size = GetTextContexts().size();
+    const int MAX_POS = text_size >= 2 ? static_cast<int>(text_size - 2) : 0;
     if (m_setting_data.current_position < MAX_POS || m_setting_data.restart_at_end)
         m_setting_data.current_position += step;
     if (m_setting_data.current_position > MAX_POS)

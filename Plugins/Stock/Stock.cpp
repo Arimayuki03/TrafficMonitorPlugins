@@ -32,7 +32,13 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     m_instance.m_is_thread_runing = true;
 
-    if (g_data.m_setting_data.m_stock_codes.empty())
+    //m_setting_data可能被UI线程整体赋值，后台线程读取字段前必须加锁
+    bool stock_codes_empty;
+    {
+        std::lock_guard<std::mutex> lock(g_data.m_settings_mutex);
+        stock_codes_empty = g_data.m_setting_data.m_stock_codes.empty();
+    }
+    if (stock_codes_empty)
     {
         g_data.ResetText();
         m_instance.m_is_thread_runing = false;
@@ -44,7 +50,12 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
     {
         m_instance.m_last_request_time = cur_time;
 
-        if (g_data.m_setting_data.m_full_day != 1)
+        bool not_full_day;
+        {
+            std::lock_guard<std::mutex> lock(g_data.m_settings_mutex);
+            not_full_day = (g_data.m_setting_data.m_full_day != 1);
+        }
+        if (not_full_day)
         {
             SYSTEMTIME now_time;
             GetLocalTime(&now_time);
@@ -216,7 +227,7 @@ void Stock::updateItems()
     {
         item.enable = FALSE;
     }
-    for (int index = 0; index < g_data.m_setting_data.m_stock_codes.size(); index++)
+    for (int index = 0; index < static_cast<int>(g_data.m_setting_data.m_stock_codes.size()); index++)
     {
         std::wstring key = g_data.m_setting_data.m_stock_codes[index];
         if (index > m_items.size() - 1)
@@ -238,6 +249,8 @@ INT_PTR Stock::ShowStockManageDlg(CWnd *pWnd)
     m_option_dlg = nullptr;
     if (rtn == IDOK)
     {
+        //整体赋值与后台线程读取字段(ThreadCallback/RequestRealtimeData)并发，必须加锁
+        std::lock_guard<std::mutex> lock(g_data.m_settings_mutex);
         g_data.m_setting_data = dlg.m_data;
         updateItems();
         g_data.SaveConfig();

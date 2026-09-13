@@ -54,6 +54,9 @@ public:
     void RequestTimelineData(std::wstring stock_id);
 
     SettingData m_setting_data;
+    //保护m_setting_data的互斥量。设置对话框OK时UI线程整体赋值本结构，
+    //而后台刷新线程(ThreadCallback/RequestRealtimeData)会读取其中字段，必须串行化
+    std::mutex m_settings_mutex;
     std::wstring m_log_path;
     bool m_right_align{}; // 数值是否右对齐
 

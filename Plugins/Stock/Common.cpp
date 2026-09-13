@@ -66,19 +66,27 @@ bool CCommon::GetURL(const std::wstring& url, std::string& result, bool utf8, LP
         }
         pfile->Close();
         delete pfile;
+        pfile = nullptr;
         pSession->Close();
     }
     catch (CInternetException* e)
     {
         CCommon::WriteLog(L"request fail!", g_data.m_log_path.c_str());
-        if (pfile != nullptr)
-        {
-            pfile->Close();
-            delete pfile;
-        }
-        if (pSession != nullptr)
-            pSession->Close();
         succeed = false;
+        //Close()自身可能抛出CInternetException，异常逃出catch会直接终止宿主进程，必须再捕获一层
+        try
+        {
+            if (pfile != nullptr)
+                pfile->Close();
+            if (pSession != nullptr)
+                pSession->Close();
+        }
+        catch (CInternetException* e2)
+        {
+            e2->Delete();
+        }
+        delete pfile;       //析构函数会释放句柄，不会抛出
+        pfile = nullptr;
         e->Delete();        //没有这句会造成内存泄露
         SAFE_DELETE(pSession);
     }
