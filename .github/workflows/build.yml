@@ -1,0 +1,27 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build solution (Release x64)
+        run: msbuild TrafficMonitorPlugins.sln /p:Configuration=Release /p:Platform=x64 /m /nologo /v:m
+
+      - name: Upload plugin dlls
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-x64-Release
+          path: bin/x64/Release/*.dll
+          if-no-files-found: error
