@@ -8,7 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # windows-2022自带VS2022(v143工具集)+MFC+.NET 4.7.2/4.8目标包，与本项目工具集匹配；
+    # windows-latest已迁移到VS2026(v18)且默认不含MFC组件，会导致MSB8041/RC1015失败。
+    # 注意：windows-2022镜像将于2027-04-17移除，届时需将工程升级到v145工具集
+    # 或在构建步骤中通过VS安装器补装MFC组件。
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
