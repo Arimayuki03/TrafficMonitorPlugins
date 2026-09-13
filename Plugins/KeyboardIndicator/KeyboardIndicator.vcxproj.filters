@@ -51,6 +51,9 @@
     <ClInclude Include="resource.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="KeyboardHook.h">
+      <Filter>KeyboardIndicator</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -70,6 +73,9 @@
     </ClCompile>
     <ClCompile Include="OptionsDlg.cpp">
       <Filter>对话框</Filter>
+    </ClCompile>
+    <ClCompile Include="KeyboardHook.cpp">
+      <Filter>KeyboardIndicator</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -2,11 +2,20 @@
 #include "KeyboardIndicatorItem.h"
 #include "DataManager.h"
 #include "KeyboardIndicator.h"
+#include "KeyboardHook.h"
 #include <gdiplus.h>
 
 const wchar_t* INDICATOR_CAPS_LOCK = L"Caps";
 const wchar_t* INDICATOR_NUM_LOCK = L"Num";
 const wchar_t* INDICATOR_SCROLL_LOCK = L"ScrLk";
+
+//获取当前要显示的按键文本，如"Ctrl+Shift+A"。没有需要显示的内容时返回false
+static bool GetPressedKeyText(std::wstring& text)
+{
+    if (!g_data.m_setting_data.show_pressed_key)
+        return false;
+    return CKeyboardHook::Instance().GetDisplayText(text, g_data.m_setting_data.pressed_key_show_time);
+}
 
 
 const wchar_t* CKeyboardIndicatorItem::GetItemName() const
@@ -55,6 +64,23 @@ int CKeyboardIndicatorItem::GetItemWidthEx(void * hDC) const
         width += (pDC->GetTextExtent(INDICATOR_NUM_LOCK).cx + item_space);
     if (g_data.m_setting_data.show_scroll_lock)
         width += (pDC->GetTextExtent(INDICATOR_SCROLL_LOCK).cx + item_space);
+    //主程序每隔1秒才重新计算一次显示区域的宽度，如果根据当前显示的按键文本计算宽度，
+    //按下的组合键变长时会因为宽度不足导致按键文本被旁边的项目遮挡约1秒，
+    //因此默认使用固定的预留宽度，保证任意按键按下时都能立即完整显示
+    if (g_data.m_setting_data.show_pressed_key)
+    {
+        if (g_data.m_setting_data.pressed_key_reserved_width > 0)
+        {
+            width += (g_data.DPI(g_data.m_setting_data.pressed_key_reserved_width) + item_space);
+        }
+        else
+        {
+            //预留宽度为0时按当前显示的按键文本自适应
+            std::wstring pressed_key_text;
+            if (CKeyboardHook::Instance().GetDisplayText(pressed_key_text, g_data.m_setting_data.pressed_key_show_time))
+                width += (pDC->GetTextExtent(pressed_key_text.c_str()).cx + g_data.DPI(4) + item_space);
+        }
+    }
     //恢复字体
     pDC->SelectObject(pOldFont);
     return width;
@@ -99,7 +125,7 @@ static void DrawRoundRectOutLine(CDC* pDC, CRect rect, COLORREF color)  //绘制
     graphics.DrawPath(&pen, &path);
 }
 
-static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool enable, COLORREF color_ori)
+static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool enable, COLORREF color_ori, int max_width = 0)
 {
     COLORREF color_default;
     COLORREF color_disable;
@@ -118,6 +144,9 @@ static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_
     COLORREF color_frame = enable ? color_default : color_disable;
     //根据文本宽度设置矩形的宽度
     rect.right = rect.left + pDC->GetTextExtent(text).cx + g_data.DPI(4);
+    //可用宽度不足时限制矩形宽度，文本超出部分显示为省略号，避免绘制到旁边的显示区域
+    if (max_width > 0 && rect.Width() > max_width)
+        rect.right = rect.left + max_width;
     //绘制边框
     if (g_data.m_setting_data.draw_round_rect)
         DrawRoundRectOutLine(pDC, rect, color_frame);
@@ -125,7 +154,7 @@ static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_
         DrawRectOutLine(pDC, rect, color_frame);
     //绘制文本
     pDC->SetTextColor(color_text);
-    pDC->DrawText(text, rect, DT_VCENTER | DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
+    pDC->DrawText(text, rect, DT_VCENTER | DT_CENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     //绘制完成后将矩形的左边框移动到右边框的位置
     rect.MoveToX(rect.right + g_data.DPI(2));
 }
@@ -155,6 +184,16 @@ void CKeyboardIndicatorItem::DrawItem(void* hDC, int x, int y, int w, int h, boo
     //绘制scroll lock
     if (g_data.m_setting_data.show_scroll_lock)
         DrawIndicator(pDC, rect_indicator, INDICATOR_SCROLL_LOCK, dark_mode, CKeyboardIndicator::IsScrollLockOn(), color_ori);
+    //绘制当前按下的按键，有按键按住时高亮显示，松开后显示时长内以灰色显示
+    std::wstring pressed_key_text;
+    if (GetPressedKeyText(pressed_key_text))
+    {
+        //使用固定预留宽度时，限制按键框不超出本显示项的剩余区域
+        int max_key_width = 0;
+        if (g_data.m_setting_data.pressed_key_reserved_width > 0)
+            max_key_width = (x + w) - rect_indicator.left;
+        DrawIndicator(pDC, rect_indicator, pressed_key_text.c_str(), dark_mode, CKeyboardHook::Instance().IsAnyKeyDown(), color_ori, max_key_width);
+    }
     //恢复字体
     pDC->SelectObject(old_font);
 }

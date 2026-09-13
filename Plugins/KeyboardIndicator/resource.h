@@ -12,14 +12,17 @@
 #define IDC_SHOW_NUM_LOCK_CHECK         1001
 #define IDC_SHOW_SCROLL_LOCK_CHECK      1002
 #define IDC_DRAW_ROUND_RECT_CHECK       1003
+#define IDC_SHOW_PRESSED_KEY_CHECK      1004
+#define IDC_PRESSED_KEY_SHOW_TIME_EDIT  1005
+#define IDC_PRESSED_KEY_RESERVED_EDIT   1006
 
 // Next default values for new objects
-// 
+//
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        105
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1004
+#define _APS_NEXT_CONTROL_VALUE         1007
 #define _APS_NEXT_SYMED_VALUE           103
 #endif
 #endif

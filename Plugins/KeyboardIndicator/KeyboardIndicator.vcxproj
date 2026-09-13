@@ -250,6 +250,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="KeyboardIndicator.h" />
     <ClInclude Include="KeyboardIndicatorItem.h" />
+    <ClInclude Include="KeyboardHook.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Common.cpp" />
@@ -265,6 +266,7 @@
     </ClCompile>
     <ClCompile Include="KeyboardIndicator.cpp" />
     <ClCompile Include="KeyboardIndicatorItem.cpp" />
+    <ClCompile Include="KeyboardHook.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="KeyboardIndicator.rc" />

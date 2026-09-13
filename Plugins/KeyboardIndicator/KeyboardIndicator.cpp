@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "KeyboardIndicator.h"
 #include "DataManager.h"
+#include "KeyboardHook.h"
 #include "OptionsDlg.h"
 
 CKeyboardIndicator CKeyboardIndicator::m_instance;
@@ -33,6 +34,23 @@ const wchar_t* CKeyboardIndicator::GetTooltipInfo()
 
 void CKeyboardIndicator::DataRequired()
 {
+    //确保键盘钩子线程已启动
+    CKeyboardHook::Instance().Start();
+    //更新鼠标提示文本：锁定键状态和最近按下的按键
+    std::wstring tooltip;
+    tooltip += L"Caps Lock: ";
+    tooltip += (IsCapsLockOn() ? L"On" : L"Off");
+    tooltip += L"\r\nNum Lock: ";
+    tooltip += (IsNumLockOn() ? L"On" : L"Off");
+    tooltip += L"\r\nScroll Lock: ";
+    tooltip += (IsScrollLockOn() ? L"On" : L"Off");
+    std::wstring last_key;
+    if (CKeyboardHook::Instance().GetLastKeyText(last_key))
+    {
+        tooltip += L"\r\nLast key: ";
+        tooltip += last_key;
+    }
+    m_tooltip_info = tooltip;
 }
 
 ITMPlugin::OptionReturn CKeyboardIndicator::ShowOptionsDialog(void* hParent)
@@ -66,7 +84,7 @@ const wchar_t* CKeyboardIndicator::GetInfo(PluginInfoIndex index)
     case ITMPlugin::TMI_URL:
         return L"https://github.com/zhongyang219/TrafficMonitorPlugins";
     case TMI_VERSION:
-        return L"1.00";
+        return L"1.10";
     default:
         break;
     }

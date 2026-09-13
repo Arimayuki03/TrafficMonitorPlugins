@@ -35,6 +35,9 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     m_setting_data.show_num_lock = GetPrivateProfileIntW(L"config", L"show_num_lock", 1, m_config_path.c_str());
     m_setting_data.show_scroll_lock = GetPrivateProfileIntW(L"config", L"show_scroll_lock", 1, m_config_path.c_str());
     m_setting_data.draw_round_rect = GetPrivateProfileIntW(L"config", L"draw_round_rect", 0, m_config_path.c_str());
+    m_setting_data.show_pressed_key = GetPrivateProfileIntW(L"config", L"show_pressed_key", 1, m_config_path.c_str());
+    m_setting_data.pressed_key_show_time = GetPrivateProfileIntW(L"config", L"pressed_key_show_time", 1000, m_config_path.c_str());
+    m_setting_data.pressed_key_reserved_width = GetPrivateProfileIntW(L"config", L"pressed_key_reserved_width", 90, m_config_path.c_str());
 }
 
 void CDataManager::SaveConfig() const
@@ -43,6 +46,9 @@ void CDataManager::SaveConfig() const
     WritePrivateProfileInt(L"config", L"show_num_lock", m_setting_data.show_num_lock, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_scroll_lock", m_setting_data.show_scroll_lock, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"draw_round_rect", m_setting_data.draw_round_rect, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"show_pressed_key", m_setting_data.show_pressed_key, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"pressed_key_show_time", m_setting_data.pressed_key_show_time, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"pressed_key_reserved_width", m_setting_data.pressed_key_reserved_width, m_config_path.c_str());
 }
 
 const CString& CDataManager::StringRes(UINT id)
