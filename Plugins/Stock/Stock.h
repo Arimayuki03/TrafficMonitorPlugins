@@ -44,8 +44,6 @@ public:
     INT_PTR ShowStockManageDlg(CWnd *pWnd);
     void SendStockInfoRequest();
     void ShowContextMenu(CWnd *pWnd);
-    void DisableUpdateCommand();
-    void EnableUpdateCommand();
 
     void ShowFloatingWnd(void *hWnd, CPoint ptScreen, std::wstring stock_id);
     void DestroyFloatingWnd();

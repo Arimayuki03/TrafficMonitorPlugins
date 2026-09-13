@@ -277,9 +277,11 @@ void STOCK::StockInfo::LoadHF(std::vector<std::string> data, size_t size)
 
 void STOCK::StockMarket::LoadTimelineDataByJson(std::wstring stock_id, CString *pData)
 {
-  auto data = g_data.GetStockData(stock_id);
+  //GetStockData在map缺失时会上锁外写入stocks，必须与下面的写操作一起放进锁内，
+  //否则与实时刷新线程锁内的map写入并发会产生数据竞争
   {
     std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
+    auto data = g_data.GetStockData(stock_id);
     data->clearTimelinePoint();
     if (pData)
     {

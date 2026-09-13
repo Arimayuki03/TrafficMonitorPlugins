@@ -165,7 +165,13 @@ std::shared_ptr<StockData> CDataManager::GetStockData(const std::wstring &code)
 
 static double generateRandomDouble()
 {
-    srand(time(nullptr)); // 设置随机种子
+    //随机种子只在首次调用时设置一次。time(nullptr)精度为秒，每次调用都重新播种
+    //会使同一秒内的所有调用返回完全相同的"随机"序列，失去缓存参数的作用
+    static const bool seeded = []() {
+        srand((unsigned)time(nullptr));
+        return true;
+    }();
+    (void)seeded;
     return (double)rand() / RAND_MAX;
 }
 

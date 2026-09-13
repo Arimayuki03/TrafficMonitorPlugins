@@ -48,14 +48,12 @@ LRESULT CFloatingWnd::OnRequestData(WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
-CFloatingWnd::CFloatingWnd() : m_isDestroying(FALSE)
+CFloatingWnd::CFloatingWnd()
 {
 }
 
 CFloatingWnd::~CFloatingWnd()
 {
-    // 标记窗口正在销毁
-    m_isDestroying = TRUE;
     if (m_CTransparentWnd.GetSafeHwnd())
         m_CTransparentWnd.DestroyWindow();
 }
@@ -324,8 +322,12 @@ void CFloatingWnd::RequestData()
     if (Stock::Instance().m_timeline_thread_running.compare_exchange_strong(expected, true))
     {
         loading_state_txt = g_data.StringRes(IDS_LOADING).GetString();
-        if (AfxBeginThread(NetworkThreadProc, this) == NULL)
+        //把股票代码复制到堆上传给线程。线程只使用这个副本，完全不触碰窗口对象，
+        //即使窗口在请求期间被销毁也不会产生悬空指针访问
+        std::wstring *param = new std::wstring(m_stock_id);
+        if (AfxBeginThread(NetworkThreadProc, (LPVOID)param) == NULL)
         {
+            delete param;
             Stock::Instance().m_timeline_thread_running = false;
         }
     }
@@ -333,25 +335,14 @@ void CFloatingWnd::RequestData()
 
 UINT CFloatingWnd::NetworkThreadProc(LPVOID pParam)
 {
-    CFloatingWnd *pFW = (CFloatingWnd *)pParam;
+    //线程参数在堆上分配，由本线程负责释放
+    std::unique_ptr<std::wstring> stock_id(reinterpret_cast<std::wstring*>(pParam));
 
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
-    //复制股票代码到局部变量。窗口可能在网络请求期间被销毁，此后不能再访问pFW的任何成员
-    std::wstring stock_id;
+    if (!stock_id->empty())
     {
-        std::lock_guard<std::mutex> lock(Stock::Instance().m_wndMutex);
-        if (pFW->m_isDestroying)
-        {
-            Stock::Instance().m_timeline_thread_running = false;
-            return 0;
-        }
-        stock_id = pFW->m_stock_id;
-    }
-
-    if (!stock_id.empty())
-    {
-        g_data.RequestTimelineData(stock_id);
+        g_data.RequestTimelineData(*stock_id);
     }
 
     Stock::Instance().m_timeline_thread_running = false;

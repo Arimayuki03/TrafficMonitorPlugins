@@ -306,9 +306,12 @@ void Stock::ShowFloatingWnd(void *hWnd, CPoint ptScreen, std::wstring stock_id)
 void Stock::DestroyFloatingWnd()
 {
     std::lock_guard<std::mutex> lock(m_wndMutex);
-    if (m_pFloatingWnd != NULL && ::IsWindow(m_pFloatingWnd->GetSafeHwnd()))
+    if (m_pFloatingWnd != NULL)
     {
-        m_pFloatingWnd->DestroyWindow();
+        //浮窗HWND可能已被其内部的透明子窗口连带销毁(点击浮窗外区域)，此时IsWindow()为FALSE，
+        //但C++对象仍然存活且没有其他释放点，不能因此跳过delete，否则每轮"关闭再打开"泄漏一个对象
+        if (::IsWindow(m_pFloatingWnd->GetSafeHwnd()))
+            m_pFloatingWnd->DestroyWindow();
         delete m_pFloatingWnd;
         m_pFloatingWnd = NULL;
     }
@@ -316,41 +319,13 @@ void Stock::DestroyFloatingWnd()
 
 void Stock::UpdateKLine()
 {
+    //本函数在网络线程中调用。持锁期间不能SendMessage跨线程等待UI线程处理消息，
+    //否则UI线程若正阻塞在m_wndMutex上(DataRequired)会互等死锁，必须用PostMessage异步通知
     std::lock_guard<std::mutex> lock(m_wndMutex);
     if (m_pFloatingWnd != NULL && ::IsWindow(m_pFloatingWnd->GetSafeHwnd()))
     {
-        m_pFloatingWnd->SendMessage(FWND_MSG_UPDATE_STATUS, FALSE, 0);
-        // DWORD_PTR dwResult = 0;
-        // LRESULT lr = ::SendMessageTimeout(
-        //     m_pFloatingWnd->GetSafeHwnd(),  // 目标窗口句柄
-        //     FWND_MSG_UPDATE_STATUS,          // 消息ID
-        //     FALSE,                       // wParam
-        //     0,                              // lParam
-        //     SMTO_ABORTIFHUNG | SMTO_BLOCK,  // 如果窗口挂起则放弃，并阻塞调用线程
-        //     2000,                           // 2秒超时
-        //     &dwResult);                     // 接收返回值
-
-        // if (lr == 0) // 失败
-        //{
-        //     DWORD dwErr = GetLastError();
-        //     // 处理错误：记录日志或销毁无效窗口等
-        //     if (dwErr == ERROR_TIMEOUT)
-        //     {
-        //         TRACE("SendMessageTimeout timed out\n");
-        //     }
-        // }
+        m_pFloatingWnd->PostMessage(FWND_MSG_UPDATE_STATUS, FALSE, 0);
     }
-}
-
-void Stock::DisableUpdateCommand()
-{
-    //只设置标志，菜单状态由UI线程在弹出菜单前刷新，不能在后台线程直接操作菜单
-    m_update_in_progress = true;
-}
-
-void Stock::EnableUpdateCommand()
-{
-    m_update_in_progress = false;
 }
 
 ITMPlugin *TMPluginGetInstance()
