@@ -351,3 +351,6 @@ MigrationBackup/
 
 # vscode
 .vscode/
+
+# video2code working folder
+.v2c/
