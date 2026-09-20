@@ -29,16 +29,18 @@ void COptionsDlg::DoDataExchange(CDataExchange* pDX)
 void COptionsDlg::InitConnectionsCombobox()
 {
     m_connections_combo.ResetContent();
+    //拷出连接列表副本，避免对话框使用期间监控线程重建列表使引用失效
+    std::vector<NetWorkConection> connections = g_data.GetAllConnections();
     //填充下拉列表
-    for (const auto& connection : g_data.GetAllConnections())
+    for (const auto& connection : connections)
     {
         m_connections_combo.AddString(connection.description.c_str());
     }
     //设置选择项
     int index{};
-    for (int i = 0; i < static_cast<int>(g_data.GetAllConnections().size()); i++)
+    for (int i = 0; i < static_cast<int>(connections.size()); i++)
     {
-        if (m_data.current_connection_name == g_data.GetAllConnections()[i].description)
+        if (m_data.current_connection_name == connections[i].description)
         {
             index = i;
             break;

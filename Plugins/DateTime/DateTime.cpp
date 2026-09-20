@@ -30,9 +30,13 @@ IPluginItem* CDateTime::GetItem(int index)
 
 void CDateTime::DataRequired()
 {
-    g_data.m_format_helper.GetCurrentDateTime();
-    g_data.m_cur_date = g_data.m_format_helper.GetCurrentDateTimeByFormat(g_data.m_setting_data.date_format.c_str());
-    g_data.m_cur_time = g_data.m_format_helper.GetCurrentDateTimeByFormat(g_data.m_setting_data.time_format.c_str());
+    //本函数运行在宿主监控线程，m_cur_date/m_cur_time由UI线程读取，
+    //格式化结果通过UpdateCurDateTimeText在锁内一次性更新
+    SYSTEMTIME cur_time{};
+    GetLocalTime(&cur_time);
+    std::wstring date_text = CDataTimeFormatHelper::GetDateTimeByFormat(g_data.m_setting_data.date_format.c_str(), cur_time).GetString();
+    std::wstring time_text = CDataTimeFormatHelper::GetDateTimeByFormat(g_data.m_setting_data.time_format.c_str(), cur_time).GetString();
+    g_data.UpdateCurDateTimeText(date_text, time_text);
 }
 
 const wchar_t* CDateTime::GetInfo(PluginInfoIndex index)
@@ -56,7 +60,6 @@ const wchar_t* CDateTime::GetInfo(PluginInfoIndex index)
         return L"1.00";
     case ITMPlugin::TMI_URL:
         return L"https://github.com/zhongyang219/TrafficMonitorPlugins";
-        break;
     default:
         break;
     }

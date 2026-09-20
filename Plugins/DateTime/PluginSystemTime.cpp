@@ -24,7 +24,8 @@ const wchar_t* CPluginSystemTime::GetItemLableText() const
 
 const wchar_t* CPluginSystemTime::GetItemValueText() const
 {
-    return CDataManager::Instance().m_cur_time.c_str();
+    //锁内拷贝到显示缓冲后返回，避免读到监控线程正在更新的字符串
+    return CDataManager::Instance().GetCurTimeText();
 }
 
 const wchar_t* CPluginSystemTime::GetItemValueSampleText() const

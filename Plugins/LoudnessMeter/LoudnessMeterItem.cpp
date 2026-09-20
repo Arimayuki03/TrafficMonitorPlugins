@@ -81,15 +81,19 @@ int CLoudnessMeterItem::GetItemWidth() const
 
 static void DrawRectOutLine(CDC* pDC, CRect rect, COLORREF color)	//绘制矩形边框
 {
+    //用SaveDC/RestoreDC恢复DC状态。MFC的SelectStockObject返回的包装对象以CGdiObject运行时类构造，
+    //对其做dynamic_cast<CBrush*>恒为nullptr，"选回原画刷"会静默失败，故不再保存原画刷对象
+    int n_saved_dc = ::SaveDC(pDC->GetSafeHdc());
     CPen aPen, * pOldPen;
     aPen.CreatePen(PS_SOLID, g_data.DPI(1), color);
     pOldPen = pDC->SelectObject(&aPen);
-    CBrush* pOldBrush{ dynamic_cast<CBrush*>(pDC->SelectStockObject(NULL_BRUSH)) };
+    pDC->SelectStockObject(NULL_BRUSH);
 
     pDC->Rectangle(rect);
     pDC->SelectObject(pOldPen);
-    pDC->SelectObject(pOldBrush);       // Restore the old brush
     aPen.DeleteObject();
+    if (n_saved_dc != 0)
+        ::RestoreDC(pDC->GetSafeHdc(), -n_saved_dc);        //恢复DC状态（含原有画刷）
 }
 
 void CLoudnessMeterItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
@@ -174,7 +178,7 @@ void CLoudnessMeterItem::DrawItem(void* hDC, int x, int y, int w, int h, bool da
         HGDIOBJ old_font = pDC->SelectObject(&m_font);
         wchar_t buff[64]{};
         if (m_state == DB_INVALID)
-            StringCchCopyW(buff, 64, L"--.-- db");
+            StringCchCopyW(buff, 64, L"--.-- dB");
         else if (m_state == DB_MUTE)
             StringCchCopyW(buff, 64, g_data.StringRes(IDS_MUTE));
         else

@@ -2,7 +2,6 @@
 // Microsoft Visual C++ 生成的包含文件。
 // 供 DateTime.rc 使用
 //
-#define IDD_DIALOG1                     101
 #define IDD_OPTIONS_DIALOG              101
 #define IDS_PLUGIN_NAME                 103
 #define IDS_PLUGIN_DESCRIPTION          104

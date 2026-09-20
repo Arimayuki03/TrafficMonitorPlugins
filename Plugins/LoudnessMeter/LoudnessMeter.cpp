@@ -203,8 +203,15 @@ void CLoudnessMeter::InitDevice()
         pDevice->Release();
         pDevice = nullptr;
     }
+    //pEnumerator为空时(如OnInitialize中CoCreateInstance失败)重新创建，使"重新初始化"命令可自愈
     if (pEnumerator == nullptr)
-        return;
+    {
+        if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator)))
+        {
+            pEnumerator = nullptr;
+            return;
+        }
+    }
     if (FAILED(pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice)))
     {
         pDevice = nullptr;
@@ -219,9 +226,12 @@ void CLoudnessMeter::EnsureTimer()
     //先销毁已有定时器再创建，避免EI_CONFIG_DIR多次到达时重复创建定时器
     if (m_timer_id != 0)
         ::KillTimer(NULL, m_timer_id);
-    m_timer_id = ::SetTimer(NULL, 1265, 50, [](HWND, UINT, UINT_PTR, DWORD) {
+    UINT_PTR timer_id = ::SetTimer(NULL, 1265, 50, [](HWND, UINT, UINT_PTR, DWORD) {
         m_instance.DoDataAcquire();
     });
+    //SetTimer失败(返回0)时不更新ID，此时旧定时器已销毁，保留旧值仅使后续KillTimer成为无害的空操作
+    if (timer_id != 0)
+        m_timer_id = timer_id;
 }
 
 ITMPlugin* TMPluginGetInstance()

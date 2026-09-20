@@ -6,6 +6,7 @@
 #include "PluginTester.h"
 #include "PluginTesterDlg.h"
 #include "../utilities/IniHelper.h"
+#include "WIC.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -50,7 +51,9 @@ HICON CPluginTesterApp::GetIcon(UINT id)
     else
     {
         HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(id), IMAGE_ICON, DPI(16), DPI(16), 0);
-        m_icons[id] = hIcon;
+        //加载失败时不缓存，允许下次重试
+        if (hIcon != nullptr)
+            m_icons[id] = hIcon;
         return hIcon;
     }
 }
@@ -58,7 +61,12 @@ HICON CPluginTesterApp::GetIcon(UINT id)
 void CPluginTesterApp::LoadConfig()
 {
     utilities::CIniHelper ini(m_config_path);
-    m_language = static_cast<Language>(ini.GetInt(L"config", L"language"));
+    int language = ini.GetInt(L"config", L"language");
+    //校验语言设置的取值范围，超出范围时回退为跟随系统
+    if (language >= static_cast<int>(Language::FOLLOWING_SYSTEM) && language <= static_cast<int>(Language::SIMPLIFIED_CHINESE))
+        m_language = static_cast<Language>(language);
+    else
+        m_language = Language::FOLLOWING_SYSTEM;
 }
 
 void CPluginTesterApp::SaveConfig() const
@@ -74,6 +82,14 @@ CPluginTesterApp theApp;
 
 
 // CPluginTesterApp 初始化
+
+int CPluginTesterApp::ExitInstance()
+{
+    //清理菜单图标转换的位图资源
+    CMenuIcon::CleanUp();
+
+    return CWinApp::ExitInstance();
+}
 
 BOOL CPluginTesterApp::InitInstance()
 {

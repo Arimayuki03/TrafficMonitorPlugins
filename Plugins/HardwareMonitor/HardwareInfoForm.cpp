@@ -13,6 +13,8 @@ namespace HardwareMonitor
         auto hardware_node = nodes->Add(Common::GetTranslatedString(hardware->Name));
         //保存图标资源名称
         hardware_node->ImageKey = HardwareMonitorHelper::GetHardwareIconResName(hardware->HardwareType);
+        //用硬件Identifier作为节点的Name(不随界面语言变化)，树折叠状态按Name持久化
+        hardware_node->Name = hardware->Identifier->ToString();
         //添加Sensor节点
         Dictionary<SensorType, TreeNode^>^ sensor_type_nodes = gcnew Dictionary<SensorType, TreeNode^>();       //保存所有Sensor类型的节点
         for (int j = 0; j < hardware->Sensors->Length; j++)
@@ -24,6 +26,8 @@ namespace HardwareMonitor
             {
                 //创建类型节点，并保存到map中
                 type_node = hardware_node->Nodes->Add(HardwareMonitorHelper::GetSensorTypeName(sensor->SensorType));
+                //类型节点的Name用硬件Identifier加类型名(类型名为固定英文)，保证稳定且全局唯一
+                type_node->Name = hardware->Identifier->ToString() + "/" + sensor->SensorType.ToString();
                 sensor_type_nodes->Add(sensor->SensorType, type_node);
             }
 
@@ -36,6 +40,11 @@ namespace HardwareMonitor
             nodeInfo->displayValue = HardwareMonitorHelper::GetSensorValueText(sensor, defaultUnit);
             nodeInfo->sensor = sensor;
             sensor_node->Tag = nodeInfo;
+        }
+        //递归添加子硬件节点(与FindSensorByIdentifyer的全递归查找保持一致，深层传感器也能被添加)
+        for (int j = 0; j < hardware->SubHardware->Length; j++)
+        {
+            AddHardwareNode(hardware_node->Nodes, hardware->SubHardware[j]);
         }
         return hardware_node;
     }
@@ -56,15 +65,9 @@ namespace HardwareMonitor
         auto computer = MonitorGlobal::Instance()->computer;
         for (int i = 0; i < computer->Hardware->Count; i++)
         {
-            //添加Hardware节点
+            //添加Hardware节点(AddHardwareNode内部会递归添加SubHardware节点)
             auto hardware = computer->Hardware[i];
-            auto hardware_node = AddHardwareNode(treeView1->Nodes, hardware);
-            //遍历SubHardware
-            for (int j = 0; j < hardware->SubHardware->Length; j++)
-            {
-                auto sub_hardware = hardware->SubHardware[j];
-                AddHardwareNode(hardware_node->Nodes, sub_hardware);
-            }
+            AddHardwareNode(treeView1->Nodes, hardware);
         }
 
         if (MonitorGlobal::Instance()->treeCollapseNodes->Count == 0)
@@ -103,6 +106,10 @@ namespace HardwareMonitor
 
     void HardwareMonitor::HardwareInfoForm::UpdateData()
     {
+        //此函数由宿主监控线程通过BeginInvoke封送到UI线程执行，
+        //窗体关闭后不再更新(此时控件可能已释放)
+        if (this->IsDisposed)
+            return;
         //更新树节点的数据
         //遍历Hardware节点
         for each (TreeNode ^ hardware_node in treeView1->Nodes)
@@ -241,8 +248,12 @@ namespace HardwareMonitor
             rightText = sensorInfo->displayValue;
 
         // 计算两个矩形区域
-        SizeF rightTextSize = e->Graphics->MeasureString(rightText, treeView1->Font);
-        int rightWidth = std::min(bounds.Width, (int)rightTextSize.Width + CHardwareMonitor::GetInstance()->DPI(4));
+        int rightWidth = 0;
+        if (rightText != nullptr)
+        {
+            SizeF rightTextSize = e->Graphics->MeasureString(rightText, treeView1->Font);
+            rightWidth = std::min(bounds.Width, (int)rightTextSize.Width + CHardwareMonitor::GetInstance()->DPI(4));
+        }
         Rectangle rightRect = Rectangle(bounds.Right - rightWidth, bounds.Top, rightWidth, bounds.Height);
         Rectangle leftRect = Rectangle(bounds.Left, bounds.Top, bounds.Width - rightWidth, bounds.Height);
 

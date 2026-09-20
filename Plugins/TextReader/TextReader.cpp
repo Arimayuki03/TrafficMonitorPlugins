@@ -12,6 +12,17 @@ CTextReader::CTextReader()
 {
 }
 
+CTextReader::~CTextReader()
+{
+    //清理NULL句柄定时器，避免定时器在插件卸载后继续触发(SetTimer失败时返回0，据此跳过)
+    if (m_save_position_timer_id != 0)
+        KillTimer(NULL, m_save_position_timer_id);
+    if (m_check_file_change_timer_id != 0)
+        KillTimer(NULL, m_check_file_change_timer_id);
+    if (m_timer_id != 0)
+        KillTimer(NULL, m_timer_id);
+}
+
 CTextReader& CTextReader::Instance()
 {
     return m_instance;
@@ -37,10 +48,10 @@ const wchar_t* CTextReader::GetTooltipInfo()
     {
         std::wstringstream stream;
         stream << g_data.StringRes(IDS_OPEN_FILE).GetString() << L": " << g_data.m_setting_data.file_path << L"\r\n";
-        std::wstring cur_chapter = g_data.GetChapter().GetCurrentChapterTitle();
+        std::wstring cur_chapter = g_data.GetCurrentChapterTitle();
         if (!cur_chapter.empty())
             stream << g_data.StringRes(IDS_CHAPTER).GetString() << L": " << cur_chapter << L"\r\n";
-        const size_t text_size = g_data.GetTextContexts().size();
+        const size_t text_size = g_data.GetTextLength();
         //文本为空时避免除以0
         if (text_size > 0)
             stream << g_data.StringRes(IDS_READ_POSITION).GetString() << L": " << std::setiosflags(std::ios::fixed) << std::setprecision(2) << static_cast<double>(g_data.m_setting_data.current_position) * 100 / text_size << "%";
@@ -51,7 +62,8 @@ const wchar_t* CTextReader::GetTooltipInfo()
 
 void CTextReader::DataRequired()
 {
-    //把后台线程下载完成的文本换入共享数据(此函数由宿主在UI线程中调用)
+    //把后台线程下载完成的文本换入共享数据。
+    //注意：此函数由宿主在后台监控线程中调用(不是UI线程)，ApplyPendingText内部已用互斥锁与UI线程的读取同步
     g_data.ApplyPendingText();
 }
 
@@ -95,13 +107,13 @@ void CTextReader::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data)
         g_data.LoadConfig(std::wstring(data));
         SetAutoReadTimer();
 
-        //设置阅读进度定时保存
-        SetTimer(NULL, 1009, 10000, [](HWND, UINT, UINT_PTR, DWORD) {
+        //设置阅读进度定时保存(保存返回的定时器ID，失败时为0，析构时据此跳过清理)
+        m_save_position_timer_id = SetTimer(NULL, 1009, 10000, [](HWND, UINT, UINT_PTR, DWORD) {
             g_data.SaveReadPosition();
         });
 
         //启动一个定时器用于检查文件变化
-        SetTimer(NULL, 1542, 1000, [](HWND, UINT, UINT_PTR, DWORD) {
+        m_check_file_change_timer_id = SetTimer(NULL, 1542, 1000, [](HWND, UINT, UINT_PTR, DWORD) {
             g_data.CheckFileChange();
         });
 

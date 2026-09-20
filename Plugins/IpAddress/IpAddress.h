@@ -2,6 +2,7 @@
 #include "PluginInterface.h"
 #include "IpAddressItem.h"
 #include <string>
+#include <mutex>
 
 class CIpAddress : public ITMPlugin
 {
@@ -28,7 +29,9 @@ private:
 private:
     static CIpAddress m_instance;
     CIpAddressItem m_item;
-    std::wstring m_tooltip_info;
+    std::wstring m_tooltip_info;            //tooltip文本值快照，仅监控线程在DataRequired中持有m_tooltip_mutex写入
+    std::wstring m_tooltip_info_ui;         //UI线程读取tooltip时锁内拷入的副本，避免接口要求返回的指针指向正被重写的缓冲
+    mutable std::mutex m_tooltip_mutex;     //保护m_tooltip_info与m_tooltip_info_ui
     DWORD m_last_refresh_tick{ 0 };     //上次自动刷新网络连接的时间
 };
 

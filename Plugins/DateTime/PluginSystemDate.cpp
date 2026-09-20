@@ -24,7 +24,8 @@ const wchar_t* CPluginSystemDate::GetItemLableText() const
 
 const wchar_t* CPluginSystemDate::GetItemValueText() const
 {
-    return CDataManager::Instance().m_cur_date.c_str();
+    //锁内拷贝到显示缓冲后返回，避免读到监控线程正在更新的字符串
+    return CDataManager::Instance().GetCurDateText();
 }
 
 const wchar_t* CPluginSystemDate::GetItemValueSampleText() const

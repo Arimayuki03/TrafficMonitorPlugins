@@ -99,6 +99,8 @@ _Chutzpah*
 # Visual C++ cache files
 ipch/
 *.aps
+RCa*
+*.res
 *.ncb
 *.opendb
 *.opensdf

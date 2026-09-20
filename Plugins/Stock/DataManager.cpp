@@ -130,11 +130,6 @@ float CDataManager::DPIF(float pixel)
     return m_dpi * pixel / 96;
 }
 
-int CDataManager::RDPI(int pixel)
-{
-    return pixel * 96 / m_dpi;
-}
-
 HICON CDataManager::GetIcon(UINT id)
 {
     auto iter = m_icons.find(id);
@@ -251,10 +246,22 @@ void CDataManager::RequestTimelineData(std::wstring stock_id)
 
             stockMarket.LoadTimelineDataByJson(stock_id, &strData);
         }
+        else
+        {
+            //非200响应按失败处理：清除分时数据并刷新浮窗，与异常路径语义一致，
+            //否则浮窗会一直停留在"加载中..."状态
+            stockMarket.LoadTimelineDataByJson(stock_id, NULL);
+        }
     }
     catch (CInternetException *e)
     {
         e->Delete();
+        stockMarket.LoadTimelineDataByJson(stock_id, NULL);
+    }
+    catch (...)
+    {
+        //线程函数只捕获CInternetException，std::bad_alloc等异常逃出线程会直接
+        //terminate宿主进程，这里兜底并保持与失败路径一致的状态
         stockMarket.LoadTimelineDataByJson(stock_id, NULL);
     }
     //所有路径统一清理网络资源，避免泄漏(原先成功路径和异常路径都有泄漏)

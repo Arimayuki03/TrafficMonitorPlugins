@@ -7,6 +7,7 @@ class CTextReader : public ITMPlugin
 {
 private:
     CTextReader();
+    ~CTextReader();
 
 public:
     static CTextReader& Instance();
@@ -47,7 +48,9 @@ private:
     static CTextReader m_instance;
     CTextReaderItem m_item;
     CMenu m_menu;
-    UINT_PTR m_timer_id{};
+    UINT_PTR m_timer_id{};                      //自动翻页定时器(NULL句柄定时器)
+    UINT_PTR m_save_position_timer_id{};        //阅读进度定时保存(NULL句柄定时器)
+    UINT_PTR m_check_file_change_timer_id{};    //检查文件变化(NULL句柄定时器)
 };
 
 #ifdef __cplusplus

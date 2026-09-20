@@ -261,7 +261,6 @@
     <ClInclude Include="OptionsDlg.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="stdafx.h" />
     <ClInclude Include="TabCtrlEx.h" />
     <ClInclude Include="TextReader.h" />
     <ClInclude Include="TextReaderItem.h" />

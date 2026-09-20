@@ -39,8 +39,9 @@ CKeyboardHook::CKeyboardHook()
 
 CKeyboardHook::~CKeyboardHook()
 {
+    //限时等待钩子线程退出；超时则放弃等待，保留临界区与句柄不销毁，
+    //避免钩子线程还在使用已删除的临界区（未定义行为），少量内存留待进程退出回收
     Stop();
-    ::DeleteCriticalSection(&m_cs);
     m_instance = nullptr;
 }
 
@@ -56,6 +57,7 @@ void CKeyboardHook::Start()
         ::CloseHandle(m_thread);
         m_thread = NULL;
         m_thread_id = 0;
+        m_hook = NULL;
     }
     //创建钩子线程，线程中安装低级键盘钩子并运行消息循环
     HANDLE h_thread = (HANDLE)_beginthreadex(NULL, 0, ThreadProc, NULL, 0, &m_thread_id);
@@ -65,33 +67,76 @@ void CKeyboardHook::Start()
         m_thread_id = 0;
 }
 
-void CKeyboardHook::Stop()
+bool CKeyboardHook::Stop()
 {
-    CLock lock(m_cs);
-    HANDLE h_thread = m_thread;
-    DWORD thread_id = m_thread_id;
-    bool on_hook_thread = (thread_id != 0 && ::GetCurrentThreadId() == thread_id);
-    if (h_thread != NULL)
+    //钩子线程自身调用时(仅可能发生在DLL卸载引发静态对象析构的场景)，
+    //不能等待自己退出，只先行卸载钩子
+    DWORD thread_id_snapshot = 0;
     {
-        if (!on_hook_thread)
+        CLock lock(m_cs);
+        thread_id_snapshot = m_thread_id;
+    }
+    if (thread_id_snapshot != 0 && ::GetCurrentThreadId() == thread_id_snapshot)
+    {
+        CLock lock(m_cs);
+        if (m_hook != NULL)
         {
-            //通知钩子线程退出，并等待其真正结束后再销毁临界区，
-            //避免线程还在EnterCriticalSection时临界区已被删除（未定义行为）
+            ::UnhookWindowsHookEx(m_hook);
+            m_hook = NULL;
+        }
+        return false;
+    }
+    //步骤1：先在锁内通知钩子线程退出，并拿到线程句柄、ID的快照
+    HANDLE h_thread = NULL;
+    DWORD thread_id = 0;
+    {
+        CLock lock(m_cs);
+        if (m_thread == NULL && m_thread_id == 0)
+            return true;    //钩子线程已停止
+        //先行卸载低级键盘钩子，使系统停止向钩子线程投递键盘事件
+        if (m_hook != NULL)
+        {
+            ::UnhookWindowsHookEx(m_hook);
+            m_hook = NULL;
+        }
+        if (m_thread != NULL)
+        {
+            h_thread = m_thread;
+            thread_id = m_thread_id;
             if (thread_id != 0)
                 ::PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
-            ::WaitForSingleObject(h_thread, 3000);
         }
-        //回收线程句柄
-        ::CloseHandle(h_thread);
-        if (m_thread == h_thread)
-            m_thread = NULL;
-        m_thread_id = 0;
+        else if (m_thread_id != 0)
+        {
+            //句柄不可用(线程已退出但尚未被回收)时仅按ID通知退出
+            ::PostThreadMessageW(m_thread_id, WM_QUIT, 0, 0);
+            m_thread_id = 0;
+            return true;
+        }
     }
-    else if (thread_id != 0 && !on_hook_thread)
+    //步骤2：不持锁等待线程退出，线程退出路径中仍需进入临界区，持锁等待会互等
+    if (h_thread != NULL)
     {
-        ::PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
-        m_thread_id = 0;
+        DWORD wait_result = ::WaitForSingleObject(h_thread, 3000);
+        //步骤3：根据等待结果回收资源；超时不删临界区，保证不再有线程使用它
+        if (wait_result == WAIT_OBJECT_0)
+        {
+            CLock lock(m_cs);
+            if (m_thread == h_thread)
+            {
+                ::CloseHandle(h_thread);
+                m_thread = NULL;
+                m_thread_id = 0;
+                m_hook = NULL;
+            }
+            //m_thread已被Start()重新赋值时句柄由其接管，不在此关闭
+            return true;
+        }
+        //等待超时：钩子已卸载、WM_QUIT已投递，线程即将自行退出；
+        //保留句柄与临界区，返回false让调用方决定重试或放弃
+        return false;
     }
+    return true;
 }
 
 unsigned int WINAPI CKeyboardHook::ThreadProc(LPVOID /*lpParameter*/)
@@ -109,6 +154,12 @@ unsigned int WINAPI CKeyboardHook::ThreadProc(LPVOID /*lpParameter*/)
             ::FreeLibraryAndExitThread(h_module, 0);
         return 1;
     }
+    //记录钩子句柄，供Stop()在等待线程退出前先行卸载
+    if (m_instance != nullptr)
+    {
+        CLock lock(m_instance->m_cs);
+        m_instance->m_hook = h_hook;
+    }
     //消息循环，低级钩子要求安装它的线程必须不断取消息，否则钩子会被系统移除
     MSG msg;
     while (::GetMessageW(&msg, NULL, 0, 0) > 0)
@@ -118,6 +169,12 @@ unsigned int WINAPI CKeyboardHook::ThreadProc(LPVOID /*lpParameter*/)
     }
     if (h_hook != NULL)
         ::UnhookWindowsHookEx(h_hook);
+    //消息循环退出后清空记录的钩子句柄，避免Stop()重复卸载
+    if (m_instance != nullptr)
+    {
+        CLock lock(m_instance->m_cs);
+        m_instance->m_hook = NULL;
+    }
     if (h_module != NULL)
         ::FreeLibraryAndExitThread(h_module, 0);
     return 0;
@@ -182,14 +239,59 @@ void CKeyboardHook::AddKey(UINT vk, UINT scan_code, bool extended)
 void CKeyboardHook::RemoveKey(UINT vk)
 {
     CLock lock(m_cs);
-    for (auto iter = m_pressed_keys.begin(); iter != m_pressed_keys.end(); ++iter)
+    //修饰键的左右键与通用键是同一个逻辑键的不同虚拟键码(如VK_CONTROL/VK_LCONTROL/VK_RCONTROL都表示Ctrl)，
+    //系统可能只发送其中一种变体的KEYUP，仅按精确虚拟键码移除会残留同族条目，这里一并清除
+    static const UINT CONTROL_FAMILY[] = { VK_CONTROL, VK_LCONTROL, VK_RCONTROL };
+    static const UINT SHIFT_FAMILY[] = { VK_SHIFT, VK_LSHIFT, VK_RSHIFT };
+    static const UINT MENU_FAMILY[] = { VK_MENU, VK_LMENU, VK_RMENU };
+    static const UINT WIN_FAMILY[] = { VK_LWIN, VK_RWIN };
+    const UINT* family = NULL;
+    UINT family_size = 0;
+    if (vk == VK_CONTROL || vk == VK_LCONTROL || vk == VK_RCONTROL)
     {
-        if (iter->vk == vk)
+        family = CONTROL_FAMILY;
+        family_size = 3;
+    }
+    else if (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT)
+    {
+        family = SHIFT_FAMILY;
+        family_size = 3;
+    }
+    else if (vk == VK_MENU || vk == VK_LMENU || vk == VK_RMENU)
+    {
+        family = MENU_FAMILY;
+        family_size = 3;
+    }
+    else if (vk == VK_LWIN || vk == VK_RWIN)
+    {
+        family = WIN_FAMILY;
+        family_size = 2;
+    }
+    bool last_key_updated = false;
+    for (auto iter = m_pressed_keys.begin(); iter != m_pressed_keys.end();)
+    {
+        bool match = (iter->vk == vk);
+        if (!match && family != NULL && iter->is_modifier)
         {
-            m_last_released = *iter;
-            m_last_release_tick = GetTickCount64();
-            m_pressed_keys.erase(iter);
-            return;
+            for (UINT i = 0; i < family_size && !match; ++i)
+                match = (iter->vk == family[i]);
+        }
+        if (match)
+        {
+            if (!last_key_updated)
+            {
+                //仅首个匹配条目更新最后松开的按键，同族其他变体只移除
+                m_last_released = *iter;
+                m_last_release_tick = GetTickCount64();
+                last_key_updated = true;
+            }
+            iter = m_pressed_keys.erase(iter);
+            if (family == NULL)
+                return;
+        }
+        else
+        {
+            ++iter;
         }
     }
 }

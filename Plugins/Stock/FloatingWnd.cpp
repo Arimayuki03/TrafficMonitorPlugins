@@ -13,6 +13,7 @@ ON_WM_LBUTTONDOWN()
 ON_WM_CREATE()
 ON_MESSAGE(FWND_MSG_UPDATE_STATUS, OnUpdateStatus)
 ON_MESSAGE(FWND_MSG_REQUEST_DATA, OnRequestData)
+ON_MESSAGE(FWND_MSG_CLOSE, OnCloseRequest)
 END_MESSAGE_MAP()
 
 int CFloatingWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
@@ -27,6 +28,13 @@ int CFloatingWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
 // 处理消息
 LRESULT CFloatingWnd::OnUpdateStatus(WPARAM wParam, LPARAM lParam)
 {
+    //分时数据下载结束(成功或失败)都会走到这里。数据仍为空说明本次下载失败，
+    //把"加载中..."换成失败提示，避免浮窗一直停留在无限加载状态
+    {
+        std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
+        if (g_data.GetStockData(m_stock_id)->getTimelineData()->data.empty())
+            loading_state_txt = g_data.StringRes(IDS_LOAD_FAIL).GetString();
+    }
     Invalidate();
     return 0;
 }
@@ -42,9 +50,24 @@ LRESULT CFloatingWnd::OnRequestData(WPARAM wParam, LPARAM lParam)
             // 开始网络请求
             RequestData();
         }
-        loading_state_txt += L".";
+        //仅在下载线程仍在运行时追加进度点，失败提示后不再追加无意义的点号
+        if (Stock::Instance().m_timeline_thread_running)
+        {
+            loading_state_txt += L".";
+        }
         Invalidate();
     }
+    return 0;
+}
+
+LRESULT CFloatingWnd::OnCloseRequest(WPARAM wParam, LPARAM lParam)
+{
+    //透明窗(浮窗的owner)点击浮窗外区域时发来本消息。只在这里销毁两个窗口的HWND，
+    //C++对象由Stock::DestroyFloatingWnd在下次显示浮窗/插件析构时统一delete：
+    //浮窗与透明窗的任何消息处理函数都在对象成员的栈帧上，在栈帧内delete所属对象
+    //会造成对象存活期UB(原先的同步销毁链正是如此)
+    DestroyWindow();
+    m_CTransparentWnd.DestroyWindow();
     return 0;
 }
 
@@ -100,8 +123,10 @@ BOOL CFloatingWnd::Create(CFont *font, CPoint pt, std::wstring stock_id)
         return FALSE;
     }
 
-    const int WIDTH = g_data.RDPI(g_data.m_setting_data.m_kline_width);
-    const int HEIGHT = g_data.RDPI(g_data.m_setting_data.m_kline_height);
+    //kline_width/height是逻辑像素配置，建窗前必须转成物理像素(DPI放大)，
+    //原先误用RDPI(物理转逻辑)导致DPI越高窗口反而越小
+    const int WIDTH = g_data.DPI(g_data.m_setting_data.m_kline_width);
+    const int HEIGHT = g_data.DPI(g_data.m_setting_data.m_kline_height);
     int x = pt.x;
     int y = pt.y;
 
@@ -293,7 +318,7 @@ void CFloatingWnd::OnPaint()
     {
         memDC.SelectObject(&pMiddleLine);
         memDC.SetTextColor(RGB(154, 151, 157));
-        memDC.TextOut((w - memDC.GetTextExtent(loading_state_txt).cx) / 2, g_data.RDPI(10), loading_state_txt);
+        memDC.TextOut((w - memDC.GetTextExtent(loading_state_txt).cx) / 2, g_data.DPI(10), loading_state_txt);
     }
 
     memDC.SelectObject(pOldPen);
@@ -322,6 +347,7 @@ void CFloatingWnd::RequestData()
     if (Stock::Instance().m_timeline_thread_running.compare_exchange_strong(expected, true))
     {
         loading_state_txt = g_data.StringRes(IDS_LOADING).GetString();
+        Invalidate();
         //把股票代码复制到堆上传给线程。线程只使用这个副本，完全不触碰窗口对象，
         //即使窗口在请求期间被销毁也不会产生悬空指针访问
         std::wstring *param = new std::wstring(m_stock_id);

@@ -41,6 +41,9 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
     if (stock_codes_empty)
     {
         g_data.ResetText();
+        //提前返回的路径也要推进节流时间戳：本函数每3秒被监控线程调起一次，
+        //不更新时间戳会让每次DataRequired都认为需要刷新而反复起线程空转
+        m_instance.m_last_request_time = time(nullptr);
         m_instance.m_is_thread_runing = false;
         return 0;
     }
@@ -63,6 +66,8 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
             {
                 CCommon::WriteLog(L"Not currently in trading time!", g_data.m_log_path.c_str());
                 g_data.ResetText();
+                //非交易时间同样是提前返回，也要推进节流时间戳，否则每秒都会起新线程空转
+                m_instance.m_last_request_time = time(nullptr);
                 m_instance.m_is_thread_runing = false;
                 return 0;
             }
@@ -71,8 +76,15 @@ UINT Stock::ThreadCallback(LPVOID dwUser)
         // 标记正在更新(菜单状态由UI线程在弹出菜单时刷新，不能在后台线程直接操作菜单)
         m_instance.m_update_in_progress = true;
 
-        g_data.RequestRealtimeData();
-
+        //非MFC异常(如std::bad_alloc)逃出线程函数会直接terminate宿主进程，
+        //这里兜底保证m_update_in_progress必然复位，否则菜单会被永久置灰
+        try
+        {
+            g_data.RequestRealtimeData();
+        }
+        catch (...)
+        {
+        }
         m_instance.m_update_in_progress = false;
     }
     m_instance.m_is_thread_runing = false;
@@ -116,26 +128,10 @@ void Stock::DataRequired()
     std::lock_guard<std::mutex> lock(m_wndMutex);
     if (m_pFloatingWnd != NULL && ::IsWindow(m_pFloatingWnd->GetSafeHwnd()))
     {
-        m_pFloatingWnd->SendMessage(FWND_MSG_REQUEST_DATA, cur_time, 0);
-        // DWORD_PTR dwResult = 0;
-        // LRESULT lr = ::SendMessageTimeout(
-        //     m_pFloatingWnd->GetSafeHwnd(),  // 目标窗口句柄
-        //     FWND_MSG_REQUEST_DATA,          // 消息ID
-        //     cur_time,                       // wParam
-        //     0,                              // lParam
-        //     SMTO_ABORTIFHUNG | SMTO_BLOCK,  // 如果窗口挂起则放弃，并阻塞调用线程
-        //     2000,                           // 2秒超时
-        //     &dwResult);                     // 接收返回值
-
-        // if (lr == 0) // 失败
-        //{
-        //     DWORD dwErr = GetLastError();
-        //     // 处理错误：记录日志或销毁无效窗口等
-        //     if (dwErr == ERROR_TIMEOUT)
-        //     {
-        //         TRACE("SendMessageTimeout timed out\n");
-        //     }
-        // }
+        //本函数在宿主监控线程中调用。持锁期间SendMessage会等待UI线程处理消息，而UI线程
+        //可能正阻塞在本锁上(ShowFloatingWnd/DestroyFloatingWnd)，会形成互等死锁，
+        //必须用PostMessage异步通知(OnRequestData无返回值依赖)
+        m_pFloatingWnd->PostMessage(FWND_MSG_REQUEST_DATA, cur_time, 0);
     }
 }
 
@@ -222,20 +218,15 @@ void *Stock::GetPluginIcon()
 
 void Stock::updateItems()
 {
-    //必须使用引用遍历，否则修改的是副本，复位不会生效
-    for (StockItem &item : m_items)
-    {
-        item.enable = FALSE;
-    }
+    //enable成员已删除(除赋值外全仓无读取点，纯死代码)。stock_id的赋值保留：
+    //DrawItem/OnMouseEvent等读路径依赖它，LoadConfig后据此刷新各项的股票代码
     for (int index = 0; index < static_cast<int>(g_data.m_setting_data.m_stock_codes.size()); index++)
     {
-        std::wstring key = g_data.m_setting_data.m_stock_codes[index];
-        if (index > m_items.size() - 1)
+        if (index > static_cast<int>(m_items.size()) - 1)
         {
             break;
         }
-        m_items[index].enable = TRUE;
-        m_items[index].stock_id = key;
+        m_items[index].stock_id = g_data.m_setting_data.m_stock_codes[index];
     }
 }
 
@@ -244,9 +235,7 @@ INT_PTR Stock::ShowStockManageDlg(CWnd *pWnd)
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     CManagerDialog dlg(pWnd);
     dlg.m_data = g_data.m_setting_data;
-    m_option_dlg = &dlg;
     INT_PTR rtn = dlg.DoModal();
-    m_option_dlg = nullptr;
     if (rtn == IDOK)
     {
         //整体赋值与后台线程读取字段(ThreadCallback/RequestRealtimeData)并发，必须加锁
@@ -303,13 +292,27 @@ void Stock::ShowFloatingWnd(void *hWnd, CPoint ptScreen, std::wstring stock_id)
     ClientToScreen((HWND)hWnd, &ptScreen);
 
     CWnd *pWnd = CWnd::FromHandle((HWND)hWnd);
-
-    CFont *font = pWnd->GetParent()->GetFont();
+    //主窗口模式下宿主传入的是无父窗口的顶层窗口，GetParent()返回NULL，必须判空回退；
+    //任务栏模式下GetParent()是宿主任务栏窗口(可能为跨进程窗口)，其字体句柄不能直接持有
+    CWnd *pParent = (pWnd != NULL) ? pWnd->GetParent() : NULL;
+    CFont *font = (pParent != NULL) ? pParent->GetFont() : NULL;
+    //复制LOGFONT为插件自有字体，取不到时传NULL，浮窗OnPaint里if(m_pfont)兜底用默认字体
+    CFont *pFloatingFont = NULL;
+    if (font != NULL)
+    {
+        LOGFONT logfont{};
+        if (font->GetLogFont(&logfont))
+        {
+            m_floating_wnd_font.DeleteObject();
+            if (m_floating_wnd_font.CreateFontIndirect(&logfont))
+                pFloatingFont = &m_floating_wnd_font;
+        }
+    }
 
     std::lock_guard<std::mutex> lock(m_wndMutex);
     // 创建新的悬浮窗
     m_pFloatingWnd = new CFloatingWnd;
-    if (!m_pFloatingWnd->Create(font, ptScreen, stock_id))
+    if (!m_pFloatingWnd->Create(pFloatingFont, ptScreen, stock_id))
     {
         delete m_pFloatingWnd;
         m_pFloatingWnd = NULL;

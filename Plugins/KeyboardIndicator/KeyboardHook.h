@@ -12,8 +12,9 @@ public:
 
     //启动钩子线程（幂等，线程异常退出后可自动重启）
     void Start();
-    //通知钩子线程退出（发送WM_QUIT并等待线程结束后回收句柄）
-    void Stop();
+    //停止钩子线程（先卸载钩子，再发送WM_QUIT并等待线程结束后回收句柄）。
+    //返回false表示等待超时，线程可能仍在运行（钩子已卸载），可再次调用重试
+    bool Stop();
 
     //获取当前要显示的按键文本，如"Ctrl+Shift+A"。
     //有按键按住时返回当前按下的所有按键（修饰键在前）；
@@ -58,4 +59,5 @@ private:
     ULONGLONG m_last_release_tick{};        //最后松开按键的时间
     HANDLE m_thread{};                      //钩子线程句柄
     unsigned m_thread_id{};                 //钩子线程id
+    HHOOK m_hook{};                         //钩子句柄，供Stop()在等待线程退出前先行卸载
 };

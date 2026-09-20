@@ -73,7 +73,9 @@ void COptionsDlg::OnEnChangeTimeFormatEdit()
     CString str;
     GetDlgItemText(IDC_TIME_FORMAT_EDIT, str);
     m_data.time_format = str;
-    CString time_preview = g_data.m_format_helper.GetCurrentDateTimeByFormat(str);
+    SYSTEMTIME cur_time{};
+    GetLocalTime(&cur_time);
+    CString time_preview = CDataTimeFormatHelper::GetDateTimeByFormat(str, cur_time);
     SetDlgItemText(IDC_TIME_PREVIEW_STATIC, time_preview);
 }
 
@@ -89,7 +91,9 @@ void COptionsDlg::OnEnChangeDateFormatEdit()
     CString str;
     GetDlgItemText(IDC_DATE_FORMAT_EDIT, str);
     m_data.date_format = str;
-    CString date_preview = g_data.m_format_helper.GetCurrentDateTimeByFormat(str);
+    SYSTEMTIME cur_time{};
+    GetLocalTime(&cur_time);
+    CString date_preview = CDataTimeFormatHelper::GetDateTimeByFormat(str, cur_time);
     SetDlgItemText(IDC_DATE_PREVIEW_STATIC, date_preview);
 }
 

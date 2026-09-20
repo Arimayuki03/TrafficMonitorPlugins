@@ -30,6 +30,9 @@ public:
     //向一个菜单项添加图标
     static HRESULT AddIconToMenuItem(HMENU hmenu, int iMenuItem, BOOL fByPosition, HICON hicon);
 
+    //释放所有图标转换生成的位图资源
+    static void CleanUp();
+
 private:
     static HRESULT AddBitmapToMenuItem(HMENU hmenu, int iItem, BOOL fByPosition, HBITMAP hbmp);
     static void InitBitmapInfo(__out_bcount(cbInfo) BITMAPINFO *pbmi, ULONG cbInfo, LONG cx, LONG cy, WORD bpp);

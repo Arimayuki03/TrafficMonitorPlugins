@@ -17,9 +17,10 @@ namespace utilities
 		std::wstring ToString() const;
 
 	private:
-		enum class eType { INT, UINT, DOUBLE, STRING };
+		enum class eType { INT, UINT, UINT64, DOUBLE, STRING };
 
 		int m_value_int{};
+		unsigned __int64 m_value_uint64{};
 		double m_value_double{};
 		std::wstring m_value_string;
 		eType m_type{};

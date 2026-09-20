@@ -77,9 +77,6 @@ PluginInfo CPluginTesterDlg::LoadPlugin(const std::wstring& plugin_file_path, co
     if (plugin_file_path.empty())
         return plugin_info;
 
-    if (plugin_info.plugin_module != NULL)
-        FreeLibrary(plugin_info.plugin_module);
-
     //插件dll的路径
     plugin_info.file_path = plugin_file_path;
 
@@ -94,13 +91,21 @@ PluginInfo CPluginTesterDlg::LoadPlugin(const std::wstring& plugin_file_path, co
     pfTMPluginGetInstance TMPluginGetInstance = (pfTMPluginGetInstance)::GetProcAddress(plugin_info.plugin_module, "TMPluginGetInstance");
     if (TMPluginGetInstance == NULL)
     {
+        //获取导出函数失败时释放已加载的dll
+        FreeLibrary(plugin_info.plugin_module);
+        plugin_info.plugin_module = NULL;
         return plugin_info;
     }
 
     //创建插件对象
     plugin_info.plugin = TMPluginGetInstance();
     if (plugin_info.plugin == nullptr)
+    {
+        //创建插件对象失败时释放已加载的dll
+        FreeLibrary(plugin_info.plugin_module);
+        plugin_info.plugin_module = NULL;
         return plugin_info;
+    }
 
     ////检查插件版本
     //int version = plugin_info.plugin->GetAPIVersion();
@@ -124,17 +129,24 @@ PluginInfo CPluginTesterDlg::LoadPlugin(const std::wstring& plugin_file_path, co
     }
 
     //获取插件显示项目
-    int index = 0;
-    for (int i = 0; i < 99; i++)
+    EnumPluginItems(plugin_info);
+
+    return plugin_info;
+}
+
+void CPluginTesterDlg::EnumPluginItems(PluginInfo& plugin_info)
+{
+    //获取插件的显示项目
+    if (plugin_info.plugin == nullptr)
+        return;
+    plugin_info.plugin_items.clear();
+    for (int index = 0; index < 99; index++)
     {
         IPluginItem* item = plugin_info.plugin->GetItem(index);
         if (item == nullptr)
             break;
         plugin_info.plugin_items.push_back(item);
-        index++;
     }
-
-    return plugin_info;
 }
 
 void CPluginTesterDlg::EnableControl()
@@ -142,14 +154,24 @@ void CPluginTesterDlg::EnableControl()
     CString str;
     m_select_plugin_combo.GetWindowText(str);
     bool enable = (!str.IsEmpty());
-    GetDlgItem(IDC_OPTION_BUTTON)->EnableWindow(enable);
-    GetDlgItem(IDC_DETAIL_BUTTON)->EnableWindow(enable);
+    CWnd* option_btn = GetDlgItem(IDC_OPTION_BUTTON);
+    if (option_btn != nullptr)
+        option_btn->EnableWindow(enable);
+    CWnd* detail_btn = GetDlgItem(IDC_DETAIL_BUTTON);
+    if (detail_btn != nullptr)
+        detail_btn->EnableWindow(enable);
 
     bool cur_dir_checked = IsDlgButtonChecked(IDC_CUR_DIR_RADIO);
-    GetDlgItem(IDC_EDIT1)->EnableWindow(!cur_dir_checked);
-    GetDlgItem(IDC_BROWSE_BUTTON)->EnableWindow(!cur_dir_checked);
+    CWnd* edit_ctrl = GetDlgItem(IDC_EDIT1);
+    if (edit_ctrl != nullptr)
+        edit_ctrl->EnableWindow(!cur_dir_checked);
+    CWnd* browse_btn = GetDlgItem(IDC_BROWSE_BUTTON);
+    if (browse_btn != nullptr)
+        browse_btn->EnableWindow(!cur_dir_checked);
 
-    GetDlgItem(IDC_ITEM_WIDTH_EDIT)->EnableWindow(IsDlgButtonChecked(IDC_SPECIFY_WIDTH_CHECK));
+    CWnd* width_edit = GetDlgItem(IDC_ITEM_WIDTH_EDIT);
+    if (width_edit != nullptr)
+        width_edit->EnableWindow(IsDlgButtonChecked(IDC_SPECIFY_WIDTH_CHECK));
 
     bool plugin_command_exist = false;
     PluginInfo cur_plugin = GetCurrentPlugin();
@@ -157,7 +179,9 @@ void CPluginTesterDlg::EnableControl()
     {
         plugin_command_exist = cur_plugin.plugin->GetCommandCount() > 0;
     }
-    GetDlgItem(IDC_PLUGIN_COMMANDS_BUTTON)->EnableWindow(plugin_command_exist);
+    CWnd* command_btn = GetDlgItem(IDC_PLUGIN_COMMANDS_BUTTON);
+    if (command_btn != nullptr)
+        command_btn->EnableWindow(plugin_command_exist);
 }
 
 PluginInfo CPluginTesterDlg::GetCurrentPlugin()
@@ -273,15 +297,20 @@ void CPluginTesterDlg::InitPlugins()
     utilities::CCommon::GetFiles((m_plugin_dir + L"*.dll").c_str(), files);
     for (const auto& file_name : files)
     {
+        PluginInfo plugin_info = LoadPlugin(m_plugin_dir + file_name, m_plugin_dir);
+        //加载失败的插件不加入下拉列表
+        if (plugin_info.plugin == nullptr)
+            continue;
         m_select_plugin_combo.AddString(file_name.c_str());
-        m_plugins.push_back(LoadPlugin(m_plugin_dir + file_name, m_plugin_dir));
-        ITMPlugin* plugin = m_plugins.back().plugin;
-        //if (plugin != nullptr)
-        //    plugin->OnExtenedInfo(ITMPlugin::EI_CONFIG_DIR, plugin_dir.c_str());
+        m_plugins.push_back(plugin_info);
     }
 
-    m_select_plugin_combo.SetCurSel(0);
-    OnCbnSelchangeSelectPluginCombo();
+    //下拉列表为空时不选择任何插件
+    if (m_select_plugin_combo.GetCount() > 0)
+    {
+        m_select_plugin_combo.SetCurSel(0);
+        OnCbnSelchangeSelectPluginCombo();
+    }
 }
 
 void CPluginTesterDlg::LoadConfig()
@@ -457,7 +486,7 @@ HCURSOR CPluginTesterDlg::OnQueryDragIcon()
 void CPluginTesterDlg::OnBass64Encode()
 {
     //打开一个文件
-    CFileDialog fileDlg(TRUE, NULL, NULL, OFN_ALLOWMULTISELECT, _T("(*.*)|*.*||"), this);
+    CFileDialog fileDlg(TRUE, NULL, NULL, OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST, _T("(*.*)|*.*||"), this);
     if (fileDlg.DoModal() == IDOK)
     {
         CString file_name = fileDlg.GetPathName();
@@ -468,8 +497,11 @@ void CPluginTesterDlg::OnBass64Encode()
         //保存文件
         CString file_name_base64 = file_name += _T(".base64.txt");
         std::ofstream file_stream(file_name_base64.GetString());
-        file_stream << base64_contents;
-        file_stream.close();
+        if (file_stream.is_open())
+        {
+            file_stream << base64_contents;
+            file_stream.close();
+        }
     }
 }
 
@@ -477,7 +509,7 @@ void CPluginTesterDlg::OnBass64Encode()
 void CPluginTesterDlg::OnBase64Decode()
 {
     //打开一个文件
-    CFileDialog fileDlg(TRUE, NULL, NULL, OFN_ALLOWMULTISELECT, _T("(*.*)|*.*||"), this);
+    CFileDialog fileDlg(TRUE, NULL, NULL, OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST, _T("(*.*)|*.*||"), this);
     if (fileDlg.DoModal() == IDOK)
     {
         CString file_name = fileDlg.GetPathName();
@@ -488,8 +520,11 @@ void CPluginTesterDlg::OnBase64Decode()
         //保存文件
         CString file_name_decoded = file_name += _T(".decoded.txt");
         std::ofstream file_stream(file_name_decoded.GetString());
-        file_stream << contents_decoded;
-        file_stream.close();
+        if (file_stream.is_open())
+        {
+            file_stream << contents_decoded;
+            file_stream.close();
+        }
     }
 }
 
@@ -505,6 +540,8 @@ void CPluginTesterDlg::OnAppAbout()
 void CPluginTesterDlg::OnCbnSelchangeSelectPluginCombo()
 {
     m_cur_index = m_select_plugin_combo.GetCurSel();
+    if (m_view != nullptr)
+        m_view->PluginChanged();        //切换插件时清除已保存的插件项目显示位置
     if (IsWindow(m_view->GetSafeHwnd()))
     {
         m_view->Invalidate();
@@ -531,6 +568,16 @@ void CPluginTesterDlg::OnBnClickedOptionButton()
     if (cur_plugin.plugin != nullptr)
     {
         ITMPlugin::OptionReturn rtn = cur_plugin.plugin->ShowOptionsDialog(m_hWnd);
+        //选项更改后重新获取插件的显示项目并刷新预览
+        if (rtn == ITMPlugin::OR_OPTION_CHANGED && m_cur_index >= 0 && m_cur_index < static_cast<int>(m_plugins.size()))
+        {
+            EnumPluginItems(m_plugins[m_cur_index]);
+            if (IsWindow(m_view->GetSafeHwnd()))
+            {
+                m_view->Invalidate();
+                m_view->SetSize(CalculatePreviewSize());
+            }
+        }
     }
 }
 
@@ -639,6 +686,16 @@ void CPluginTesterDlg::OnDestroy()
     CDialog::OnDestroy();
 
     SaveConfig();
+
+    //释放已加载的插件dll
+    for (auto& plugin : m_plugins)
+    {
+        if (plugin.plugin_module != NULL)
+            FreeLibrary(plugin.plugin_module);
+    }
+
+    //清理菜单图标转换的位图资源
+    CMenuIcon::CleanUp();
 }
 
 
@@ -745,7 +802,9 @@ void CPluginTesterDlg::OnBnClickedPluginCommandsButton()
             }
             //获取弹出菜单的位置
             CRect btn_rect;
-            ::GetWindowRect(GetDlgItem(IDC_PLUGIN_COMMANDS_BUTTON)->GetSafeHwnd(), btn_rect);
+            CWnd* popup_btn = GetDlgItem(IDC_PLUGIN_COMMANDS_BUTTON);
+            if (popup_btn != nullptr)
+                popup_btn->GetWindowRect(&btn_rect);
             //弹出菜单
             m_plugin_command_menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, btn_rect.left, btn_rect.bottom, this); //在指定位置显示弹出菜单
         }

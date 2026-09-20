@@ -15,47 +15,59 @@ CChapterParser::~CChapterParser()
 
 void CChapterParser::Parse()
 {
-    m_chapter.clear();
+    m_chapter = ParseChapterData(m_contents);
+}
+
+std::map<int, std::wstring> CChapterParser::ParseChapterData(const std::wstring& contents)
+{
+    std::map<int, std::wstring> chapter;
     size_t index = -1;
     while (true)
     {
-        index = m_contents.find(L"第", index + 1);
+        index = contents.find(L"第", index + 1);
         if (index == std::wstring::npos)
             break;
-        size_t index1 = m_contents.find(L"章", index + 2);
+        size_t index1 = contents.find(L"章", index + 2);
         if (index1 == std::wstring::npos)
             break;
         if (index1 - index < 10)
         {
-            size_t index2 = m_contents.find_first_of(L"\r\n", index1 + 1);
+            size_t index2 = contents.find_first_of(L"\r\n", index1 + 1);
             if (index2 - index1 < 60)
             {
-                std::wstring title = m_contents.substr(index, index2 - index);
-                m_chapter[static_cast<int>(index)] = title;
-                index = index2 + 1;
+                std::wstring title = contents.substr(index, index2 - index);
+                chapter[static_cast<int>(index)] = title;
+                //从换行符处继续查找。若从index2+1开始，LF-only文件中紧邻换行符的下一章标题会被跳过(每隔一章漏一章)
+                index = index2;
             }
         }
 
     }
-    
-    if (m_chapter.empty())
+
+    if (chapter.empty())
     {
         index = -1;
         while (true)
         {
-            index = m_contents.find(L"Chapter", index + 1);
+            index = contents.find(L"Chapter", index + 1);
             if (index == std::wstring::npos)
                 break;
-            size_t index2 = m_contents.find_first_of(L"\r\n", index + 1);
+            size_t index2 = contents.find_first_of(L"\r\n", index + 1);
             if (index2 - index < 60)
             {
-                std::wstring title = m_contents.substr(index, index2 - index);
-                m_chapter[static_cast<int>(index)] = title;
-                index = index2 + 1;
+                std::wstring title = contents.substr(index, index2 - index);
+                chapter[static_cast<int>(index)] = title;
+                index = index2;
             }
         }
 
     }
+    return chapter;
+}
+
+void CChapterParser::SetChapterData(std::map<int, std::wstring>&& data)
+{
+    m_chapter = std::move(data);
 }
 
 const std::map<int, std::wstring>& CChapterParser::GetChapterData() const
@@ -82,23 +94,14 @@ std::wstring CChapterParser::GetCurrentChapterTitle() const
 
 int CChapterParser::GetChapterIndexByPos(int pos) const
 {
-    for (auto iter = m_chapter.begin(); iter != m_chapter.end(); ++iter)
-    {
-        if (iter->first >= pos)
-        {
-            if (iter == m_chapter.begin())
-            {
-                return iter->first;
-            }
-            else
-            {
-                auto privious_iter = iter;
-                return (--privious_iter)->first;
-            }
-        }
-
-    }
-    return -1;
+    if (m_chapter.empty())
+        return -1;
+    //用upper_bound找到最后一个起点不大于pos的章节。原来的">="写法在pos恰为章节起点时会返回上一章
+    auto iter = m_chapter.upper_bound(pos);
+    if (iter == m_chapter.begin())
+        return iter->first;     //pos在第一章起点之前，返回第一章
+    --iter;
+    return iter->first;
 }
 
 std::wstring CChapterParser::GetChapterByPos(int pos) const

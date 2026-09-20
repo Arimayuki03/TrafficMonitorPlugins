@@ -32,7 +32,12 @@ IPluginItem* CBattery::GetItem(int index)
 const wchar_t* CBattery::GetTooltipInfo()
 {
     if (g_data.m_setting_data.show_battery_in_tooltip)
-        return m_tooltop_info.c_str();
+    {
+        //在锁内把m_tooltop_info拷贝到副本再使用，避免直接使用成员引用读到失效缓冲
+        std::lock_guard<std::mutex> lock(m_tooltip_mutex);
+        m_tooltop_info_display = m_tooltop_info;
+        return m_tooltop_info_display.c_str();
+    }
     else
         return L"";
 }
@@ -40,20 +45,26 @@ const wchar_t* CBattery::GetTooltipInfo()
 void CBattery::DataRequired()
 {
     //获取系统电量，失败时保留上一次的数据
-    if (!GetSystemPowerStatus(&g_data.m_sysPowerStatus))
+    if (!g_data.UpdateSystemPowerStatus())
         return;
     //g_data.m_sysPowerStatus.BatteryFlag = 1;
     //g_data.m_sysPowerStatus.BatteryLifePercent = 80;
+    //锁内拷出副本供本线程使用，避免与其他线程读取/后续写入撕裂
+    SYSTEM_POWER_STATUS status = g_data.GetSystemPowerStatusCopy();
     //生成鼠标提示信息
     std::wstringstream wss;
     wss << g_data.StringRes(IDS_BATTERY).GetString() << L": " << g_data.GetBatteryString();
     if (g_data.IsAcOnline())
         wss << L" " << g_data.StringRes(IDS_CHARGING).GetString();
-    if (g_data.m_sysPowerStatus.BatteryLifeTime != -1)
-        wss << std::endl << g_data.StringRes(IDS_BATTERY_LIFE_TIME).GetString() << L": " << CCommon::TimeFormat(g_data.m_sysPowerStatus.BatteryLifeTime);
-    if (g_data.m_sysPowerStatus.BatteryFullLifeTime != -1)
-        wss << std::endl << g_data.StringRes(IDS_BATTERY_FULL_LIFE_TIME).GetString() << L": " << CCommon::TimeFormat(g_data.m_sysPowerStatus.BatteryFullLifeTime);
-    m_tooltop_info = wss.str();
+    if (status.BatteryLifeTime != -1)
+        wss << std::endl << g_data.StringRes(IDS_BATTERY_LIFE_TIME).GetString() << L": " << CCommon::TimeFormat(status.BatteryLifeTime);
+    if (status.BatteryFullLifeTime != -1)
+        wss << std::endl << g_data.StringRes(IDS_BATTERY_FULL_LIFE_TIME).GetString() << L": " << CCommon::TimeFormat(status.BatteryFullLifeTime);
+    //先在锁外组装完整字符串，锁内一次性swap到成员：旧缓冲由局部变量持有到锁释放后，
+    //避免每个周期移动赋值在UI线程可能读取期间释放旧缓冲
+    std::wstring new_tooltip = wss.str();
+    std::lock_guard<std::mutex> lock(m_tooltip_mutex);
+    m_tooltop_info.swap(new_tooltip);
 }
 
 ITMPlugin::OptionReturn CBattery::ShowOptionsDialog(void* hParent)
@@ -85,7 +96,6 @@ const wchar_t* CBattery::GetInfo(PluginInfoIndex index)
         return L"Copyright (C) by Zhong Yang 2025";
     case ITMPlugin::TMI_URL:
         return L"https://github.com/zhongyang219/TrafficMonitorPlugins";
-        break;
     case TMI_VERSION:
         return L"1.03";
     default:

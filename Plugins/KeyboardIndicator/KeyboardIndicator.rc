@@ -109,14 +109,6 @@ BEGIN
     0, 0, 0, 0
 END
 
-IDD_SELECT_CITY_DIALOG AFX_DIALOG_LAYOUT
-BEGIN
-    0,
-    100, 100, 0, 0,
-    100, 100, 0, 0,
-    0, 0, 100, 100,
-    0, 0, 0, 0
-END
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -178,7 +170,7 @@ BEGIN
     IDS_PLUGIN_NAME         "键盘指示器"
     IDS_PLUGIN_DESCRIPTION  "用于指示键盘Caps Lock、Num Lock、Scroll Lock等状态，并实时显示当前按下的按键。"
     IDS_PLUGIN_ITEM_NAME    "键盘指示器"
-    IDS_SELECT_AT_LEAST_WARNING "清至少选择一项！"
+    IDS_SELECT_AT_LEAST_WARNING "请至少选择一项！"
 END
 
 #endif    // 中文(简体，中国) resources

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <map>
+#include <mutex>
 #include "resource.h"
 
 #define g_data CDataManager::Instance()
@@ -42,20 +43,23 @@ public:
     float DPIF(float pixel);
     int RDPI(int pixel);
     HICON GetIcon(UINT id);
+    bool UpdateSystemPowerStatus();     //由监控线程调用，锁内获取系统电量，失败时保留原值
+    SYSTEM_POWER_STATUS GetSystemPowerStatusCopy() const;   //锁内整体拷出m_sysPowerStatus副本，避免监控线程写入与UI线程逐字段读取撕裂
     bool IsAcOnline() const;        //电源是否已接通
-    bool IsCharging() const;        //是否正在充电
 
     std::wstring GetBatteryString() const;
     COLORREF GetBatteryColor() const;
 
     SettingData m_setting_data;
-    SYSTEM_POWER_STATUS m_sysPowerStatus{};   // 系统电量信息
-    ULONG_PTR m_gdiplusToken;
+    SYSTEM_POWER_STATUS m_sysPowerStatus{};   // 系统电量信息，仅由监控线程DataRequired写，读取请通过GetSystemPowerStatusCopy获取副本
+    ULONG_PTR m_gdiplusToken{ 0 };
 
 private:
     static CDataManager m_instance;
     std::wstring m_config_path;
     std::map<UINT, CString> m_string_table;
+    mutable std::recursive_mutex m_string_table_mutex;      //保护m_string_table(监控线程DataRequired首次插入与UI线程并发访问)
     std::map<UINT, HICON> m_icons;
+    mutable std::mutex m_sysPowerStatus_mutex;              //保护m_sysPowerStatus的跨线程读写
     int m_dpi{ 96 };
 };

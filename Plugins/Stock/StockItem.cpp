@@ -51,11 +51,17 @@ bool StockItem::IsCustomDraw() const
 int StockItem::GetItemWidthEx(void *hDC) const
 {
     CDC *pDC = CDC::FromHandle((HDC)hDC);
-    //在锁内复制显示文本，避免与后台刷新线程产生数据竞争
+    //股票数据与设置字段分别由两把锁保护，两把锁从不嵌套(与后台线程锁序一致)，
+    //各自在锁内拷贝副本、锁外使用
+    bool show_stock_name;
+    {
+        std::lock_guard<std::mutex> settings_lock(g_data.m_settings_mutex);
+        show_stock_name = g_data.m_setting_data.m_show_stock_name;
+    }
     std::wstring display_text;
     {
         std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
-        display_text = g_data.GetStockData(stock_id)->GetCurrentDisplay(g_data.m_setting_data.m_show_stock_name);
+        display_text = g_data.GetStockData(stock_id)->GetCurrentDisplay(show_stock_name);
     }
 
     int width = pDC->GetTextExtent(display_text.c_str()).cx;
@@ -72,14 +78,22 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     // 矩形区域
     CRect rect(CPoint(x, y), CSize(w, h));
 
-    //在锁内复制需要显示的数据，避免与后台刷新线程产生数据竞争
+    //在锁内拷贝绘图所需的数据副本，避免与后台刷新线程产生数据竞争；
+    //股票数据与设置字段分别由两把锁保护，锁不嵌套，各自拷贝后锁外使用
     STOCK::StockInfo info_copy;
     std::wstring display_text;
+    bool show_stock_name;
+    bool color_with_price;
     {
         std::lock_guard<std::recursive_mutex> lock(Stock::Instance().m_stockDataMutex);
         auto data = g_data.GetStockData(stock_id);
         info_copy = data->info;
         display_text = data->GetCurrentDisplay(false);
+    }
+    {
+        std::lock_guard<std::mutex> settings_lock(g_data.m_settings_mutex);
+        show_stock_name = g_data.m_setting_data.m_show_stock_name;
+        color_with_price = g_data.m_setting_data.m_color_with_price;
     }
 
     // 文本颜色
@@ -100,7 +114,7 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
     }
 
     CRect rect_value{rect};
-    if (info_copy.is_ok && g_data.m_setting_data.m_show_stock_name)
+    if (info_copy.is_ok && show_stock_name)
     {
         // 绘制名称
         pDC->SetTextColor(color_default);
@@ -113,7 +127,7 @@ void StockItem::DrawItem(void *hDC, int x, int y, int w, int h, bool dark_mode)
         rect_value.left = rect_name.right;
     }
 
-    if (g_data.m_setting_data.m_color_with_price)
+    if (color_with_price)
     {
         // 绘制数值
         if (info_copy.displayFluctuation.find('-') != std::wstring::npos)
@@ -165,7 +179,10 @@ int StockItem::OnMouseEvent(MouseEventType type, int x, int y, void *hWnd, int f
         }
         else
         {
+            //弹出了提示框即已处理本次点击，必须返回1，否则穿透到default返回0，
+            //宿主会继续按未处理处理该点击
             MessageBox((HWND)hWnd, g_data.StringRes(IDS_UNSUPPORT_SHOW_KLINE_STOCK_TIP), g_data.StringRes(IDS_PLUGIN_NAME), MB_ICONINFORMATION | MB_OK);
+            return 1;
         }
     }
     default:

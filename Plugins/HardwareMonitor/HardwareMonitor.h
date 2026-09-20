@@ -9,6 +9,7 @@
 #include "SettingsForm.h"
 #include "HardwareMonitorItem.h"
 #include <vector>
+#include <mutex>
 #include "CommonData.h"
 
 using namespace System;
@@ -51,6 +52,15 @@ namespace HardwareMonitor
         void LoadConfig(const std::wstring& config_dir);
         void SaveConfig();
 
+        //获取一个监控项目的配置的拷贝(在锁内完成查找与拷贝，
+        //避免调用方持有指向items_info元素的引用跨线程使用时被UI线程的修改悬空)
+        //找不到时返回默认构造的ItemInfo
+        ItemInfo GetItemInfoCopy(const std::wstring& identifyer);
+
+        //交换两个监控项目的配置(在锁内交换，避免与监控线程对items_info的读取竞争)
+        //索引无效时不做任何操作并返回false
+        bool SwapDisplayItems(int index1, int index2);
+
         int DPI(int pixel) const;
 
         ITrafficMonitor* GetMainApp() const;
@@ -60,12 +70,20 @@ namespace HardwareMonitor
 
         static void ShowErrorMessage(System::Exception^ e);
 
+    public:
+        //保护MonitorGlobal::sensorMap的互斥量。sensorMap是托管Dictionary(非线程安全)，
+        //会被监控线程(每秒FindSensorByIdentifyer)与UI线程(设置窗体查找及Clear)并发访问。
+        //临界区内做Dictionary的短时托管调用是可接受的，但临界区内不得调用可能重入本锁的回调
+        std::mutex m_sensor_mutex;
+
     private:
         static CHardwareMonitor* m_pIns;
-        std::vector<CHardwareMonitorItem*> m_items;         //当前显示的监控项目，指向m_item_pool中的对象
+        std::vector<CHardwareMonitorItem*> m_items;         //当前显示的监控项目，指向m_item_pool中的对象；UI线程重建、宿主监控线程遍历，访问前须持有m_items_mutex
+        std::mutex m_items_mutex;                           //保护m_items的互斥量，防止重建与遍历并发导致野指针；同时保护items_info的写操作(GetItemInfoCopy/SwapDisplayItems在同锁内读写items_info)
         std::vector<CHardwareMonitorItem*> m_item_pool;     //所有创建过的监控项目对象，只增不减，保证宿主缓存的IPluginItem*不会失效
         std::wstring m_config_path;
         std::map<std::wstring, std::wstring> m_item_names;  //保存每个Sensor的identifier和名称的map
+        std::wstring m_tooltip_info;                        //GetTooltipInfo的返回值缓冲区(用成员而非函数级static，避免跨实例/跨调用共享)
 
         // 通过 ITMPlugin 继承
         IPluginItem* GetItem(int index) override;

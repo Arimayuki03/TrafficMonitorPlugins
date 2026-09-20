@@ -50,18 +50,21 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     m_config_path = utilities::CFilePathHelper(m_config_path).GetFilePathWithoutExtension();
     m_config_path += L".ini";
     utilities::CIniHelper ini(m_config_path);
-    m_setting_data.current_connection_name = ini.GetString(L"config", L"connection_name");
-    if (m_setting_data.current_connection_name.empty() && !m_connections.empty())
+    std::wstring connection_name = ini.GetString(L"config", L"connection_name");
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    if (connection_name.empty() && !m_connections.empty())
     {
-        m_setting_data.current_connection_name = m_connections[0].description;
+        connection_name = m_connections[0].description;
     }
-
+    m_setting_data.current_connection_name = connection_name;
+    RebuildCurrentIPv4();
 }
 
 void CDataManager::SaveConfig() const
 {
     if (!m_config_path.empty())
     {
+        std::lock_guard<std::mutex> lock(m_data_mutex);
         utilities::CIniHelper ini(m_config_path);
         ini.WriteString(L"config", L"connection_name", m_setting_data.current_connection_name);
         ini.Save();
@@ -70,6 +73,7 @@ void CDataManager::SaveConfig() const
 
 const CString& CDataManager::StringRes(UINT id)
 {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     auto iter = m_string_table.find(id);
     if (iter != m_string_table.end())
     {
@@ -125,30 +129,51 @@ HICON CDataManager::GetIcon(UINT id)
 
 void CDataManager::UpdateConnections()
 {
-    CAdapterCommon::GetAdapterInfo(m_connections);
+    //GetAdapterInfo在锁外执行（耗时网络API），锁内只做列表与快照的重建
+    std::vector<NetWorkConection> connections;
+    CAdapterCommon::GetAdapterInfo(connections);
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_connections = std::move(connections);
+    RebuildCurrentIPv4();
 }
 
-bool CDataManager::GetLocalIPv4Address(std::wstring& ipv4address)
+void CDataManager::SetCurrentConnectionName(const std::wstring& connection_name)
 {
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    m_setting_data.current_connection_name = connection_name;
+    RebuildCurrentIPv4();
+}
+
+std::wstring CDataManager::GetCurrentConnectionName() const
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_setting_data.current_connection_name;
+}
+
+void CDataManager::RebuildCurrentIPv4()
+{
+    //需在持有m_data_mutex时调用
+    m_current_ipv4.clear();
     for (const auto& item : m_connections)
     {
         if (item.description == m_setting_data.current_connection_name)
         {
-            ipv4address = item.ip_address;
-            return true;
+            m_current_ipv4 = item.ip_address;
+            break;
         }
     }
-    return false;
 }
 
-std::wstring CDataManager::GetCurrentIPv4Address()
+std::wstring CDataManager::GetCurrentIPv4Address() const
 {
-    m_current_ipv4.clear();
-    GetLocalIPv4Address(m_current_ipv4);
+    //只读快照，供UI线程拷出使用，不再在此重赋成员
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     return m_current_ipv4;
 }
 
-const std::vector<NetWorkConection>& CDataManager::GetAllConnections() const
+std::vector<NetWorkConection> CDataManager::GetAllConnections() const
 {
+    //拷出副本，UI线程不在监控线程重建列表期间持有引用
+    std::lock_guard<std::mutex> lock(m_data_mutex);
     return m_connections;
 }

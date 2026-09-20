@@ -57,7 +57,6 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     TCHAR buff[MAX_PATH];
     GetPrivateProfileString(_T("config"), _T("file_path"), _T(""), buff, MAX_PATH, m_config_path.c_str());
     m_setting_data.file_path = buff;
-    LoadTextContents(m_setting_data.file_path.c_str());
 
     m_setting_data.current_position = GetPrivateProfileInt(_T("config"), _T("current_position"), 0, m_config_path.c_str());
     m_setting_data.window_width = GetPrivateProfileInt(_T("config"), _T("window_width"), 180, m_config_path.c_str());
@@ -73,6 +72,21 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     m_setting_data.mouse_wheel_read = GetPrivateProfileInt(_T("config"), _T("mouse_wheel_read"), 0, m_config_path.c_str());
     m_setting_data.mouse_wheel_charactors = GetPrivateProfileInt(_T("config"), _T("mouse_wheel_charactors"), 3, m_config_path.c_str());
     m_setting_data.mouse_wheel_read_page = GetPrivateProfileInt(_T("config"), _T("mouse_wheel_read_page"), 0, m_config_path.c_str());
+
+    //钳制ini中可能保存的异常值(current_position的上限在文本载入后再钳制)
+    if (m_setting_data.current_position < 0)
+        m_setting_data.current_position = 0;
+    if (m_setting_data.window_width < 1)
+        m_setting_data.window_width = 1;
+    else if (m_setting_data.window_width > 10000)
+        m_setting_data.window_width = 10000;
+    if (m_setting_data.auto_read_timer_interval < 50)       //间隔过小会导致高频空转，过大(如负值转UINT)近乎永不触发
+        m_setting_data.auto_read_timer_interval = 50;
+    else if (m_setting_data.auto_read_timer_interval > 3600000)
+        m_setting_data.auto_read_timer_interval = 3600000;
+
+    //载入文本。必须在读取auto_decode_base64开关之后调用，否则启动载入不会对Base64编码的文本解码
+    LoadTextContents(m_setting_data.file_path.c_str());
 
     //载入书签
     m_bookmark_mgr.LoadFromConfig(m_config_path);
@@ -163,10 +177,18 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
     //打开url
     if (CCommon::IsURL(file_path))
     {
-        //在后台线程中打开url。检查-置位-创建线程都在UI线程中完成，避免产生两个并发写线程
-        bool expected = false;
-        if (m_is_thread_runing.compare_exchange_strong(expected, true))
+        bool start_thread = false;
         {
+            std::lock_guard<std::mutex> lock(m_data_mutex);
+            //记录最新请求：运行中的下载线程结束后会接续处理新请求，ApplyPendingText也以此校验下载结果的归属
+            m_requested_url = file_path;
+            //置位判定必须与m_requested_url的更新在同一把锁内完成，否则可能与下载线程的退出处理竞争导致请求丢失
+            bool expected = false;
+            start_thread = m_is_thread_runing.compare_exchange_strong(expected, true);
+        }
+        if (start_thread)
+        {
+            //线程参数在堆上分配，由线程内部释放，避免static变量在线程运行中被改写
             ThreadParam* param = new ThreadParam{ file_path };
             CWinThread* thread = AfxBeginThread(ThreadCallback, (LPVOID)param);
             if (thread == nullptr)
@@ -179,6 +201,12 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
     //打开本地文件
     else
     {
+        //当前选择已不是url，未换入的下载结果作废
+        {
+            std::lock_guard<std::mutex> lock(m_data_mutex);
+            m_requested_url.clear();
+        }
+
         std::ifstream file{ file_path, std::ios::binary };
         if (file.fail())
         {
@@ -188,28 +216,29 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
         //保存文件的上次修改时间
         CCommon::GetFileLastModified(file_path, m_file_last_modified);
 
+        //先读入局部变量，成功后再在锁内换入共享数据，失败时保持现有内容不变
+        std::wstring text_contents;
         std::wstring ext = utilities::CFilePathHelper(file_path).GetFileExtension();
         utilities::StringHelper::StringTransform(ext, false);
         //打开html文件
         if (ext == L"html" || ext == L"htm")
         {
             CHtmlToText html_to_text;
-            html_to_text.ParseFromFile(file_path);
-            m_text_contents = html_to_text.GetText();
+            if (!html_to_text.ParseFromFile(file_path))
+                return false;
+            text_contents = html_to_text.GetText();
         }
         //打开文本文件
         else
         {
-            //获取文件长度
+            //获取文件长度。tellg()失败时返回-1，必须按有符号数处理，否则会被钳到50MB白白分配内存
             file.seekg(0, file.end);
-            size_t length = file.tellg();
+            std::streamoff length = file.tellg();
             file.seekg(0, file.beg);
-            if (length > MAX_FILE_SIZE)	//限制文件大小不超过MAX_FILE_SIZE
-            {
-                length = MAX_FILE_SIZE;
-            }
-            if (length <= 0)
+            if (length <= 0)	//获取文件长度失败或空文件
                 return false;
+            if (length > MAX_FILE_SIZE)	//限制文件大小不超过MAX_FILE_SIZE
+                length = MAX_FILE_SIZE;
 
             //读取数据
             char* buff = new char[length + 1];
@@ -232,38 +261,93 @@ bool CDataManager::LoadTextContents(LPCTSTR file_path)
             }
 
             //识别编码(BOM/UTF-16/UTF-8/ANSI)并转换成Unicode
-            m_text_contents = CCommon::ConvertToUnicode(str_contents);
+            text_contents = CCommon::ConvertToUnicode(str_contents);
         }
 
-        //解析章节
-        m_chapter_parser.Parse();
+        //换入共享数据并解析章节。m_text_contents与章节表被监控线程(DataRequired)和UI线程共同访问，必须互斥
+        {
+            std::lock_guard<std::mutex> lock(m_data_mutex);
+            m_text_contents = std::move(text_contents);
+            m_chapter_parser.Parse();
+            ClampReadPosition();
+        }
     }
 
     return true;
 }
 
 
-const std::wstring& CDataManager::GetTextContexts() const
+size_t CDataManager::GetTextLength()
 {
-    return m_text_contents;
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_text_contents.size();
+}
+
+std::wstring CDataManager::GetTextSubstr(int position, size_t max_length)
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    if (position < 0 || static_cast<size_t>(position) >= m_text_contents.size())
+        return std::wstring();
+    return m_text_contents.substr(static_cast<size_t>(position), max_length);
+}
+
+std::wstring CDataManager::GetCurrentChapterTitle()
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_chapter_parser.GetCurrentChapterTitle();
+}
+
+std::wstring CDataManager::GetChapterTitle(int chapter_index)
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_chapter_parser.GetChapterTitle(chapter_index);
+}
+
+std::wstring CDataManager::GetChapterByPos(int pos)
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_chapter_parser.GetChapterByPos(pos);
+}
+
+int CDataManager::GetChapterIndexByPos(int pos)
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_chapter_parser.GetChapterIndexByPos(pos);
+}
+
+std::map<int, std::wstring> CDataManager::GetChapterDataSnapshot()
+{
+    std::lock_guard<std::mutex> lock(m_data_mutex);
+    return m_chapter_parser.GetChapterData();
 }
 
 int CDataManager::GetPageStep(CDC* dc)
 {
-    int step = 1;
     if (dc == nullptr)
         return 1;
-    while (true)
+    //在锁内测量，避免测量期间后台线程换入文本导致指针失效
+    int step = 1;
+    bool width_exceeded = false;
     {
-        if (m_setting_data.current_position + step >= m_text_contents.size())
-            break;
-        int text_width = dc->GetTextExtent(m_text_contents.c_str() + m_setting_data.current_position, step).cx;
-        if (text_width > m_draw_width)
+        std::lock_guard<std::mutex> lock(m_data_mutex);
+        while (true)
         {
-            return (step - 1);
+            if (m_setting_data.current_position + step >= static_cast<int>(m_text_contents.size()))
+                break;
+            int text_width = dc->GetTextExtent(m_text_contents.c_str() + m_setting_data.current_position, step).cx;
+            if (text_width > m_draw_width)
+            {
+                width_exceeded = true;
+                break;
+            }
+            step++;
         }
-        step++;
+        if (width_exceeded)
+            step--;
     }
+    //步长最小为1，否则绘制区过窄时翻页/滚轮/自动翻页会全部失效
+    if (step < 1)
+        step = 1;
     return step;
 }
 
@@ -286,20 +370,24 @@ void CDataManager::PageDown(int step)
         step = m_page_step;
     if (m_boss_key_pressed)
         return;
-    //文本不足2字符时size()-2会无符号下溢，先做守卫(空文本时MAX_POS取0，翻页动作被钳制在开头)
-    const size_t text_size = GetTextContexts().size();
-    const int MAX_POS = text_size >= 2 ? static_cast<int>(text_size - 2) : 0;
-    if (m_setting_data.current_position < MAX_POS || m_setting_data.restart_at_end)
-        m_setting_data.current_position += step;
-    if (m_setting_data.current_position > MAX_POS)
     {
-        if (m_setting_data.restart_at_end)
+        //在锁内读取文本长度，避免与后台线程的文本换入竞争
+        std::lock_guard<std::mutex> lock(m_data_mutex);
+        //文本不足2字符时size()-2会无符号下溢，先做守卫(空文本时MAX_POS取0，翻页动作被钳制在开头)
+        const int text_size = static_cast<int>(m_text_contents.size());
+        const int MAX_POS = text_size >= 2 ? text_size - 2 : 0;
+        if (m_setting_data.current_position < MAX_POS || m_setting_data.restart_at_end)
+            m_setting_data.current_position += step;
+        if (m_setting_data.current_position > MAX_POS)
+        {
+            if (m_setting_data.restart_at_end)
+                m_setting_data.current_position = 0;
+            else
+                m_setting_data.current_position = MAX_POS;
+        }
+        if (m_setting_data.current_position < 0)
             m_setting_data.current_position = 0;
-        else
-            m_setting_data.current_position = MAX_POS;
     }
-    if (m_setting_data.current_position < 0)
-        m_setting_data.current_position = 0;
     m_position_modified = true;
 }
 
@@ -358,37 +446,74 @@ void CDataManager::CheckFileChange()
 
 UINT CDataManager::ThreadCallback(LPVOID dwUser)
 {
+    AFX_MANAGE_STATE(AfxGetStaticModuleState());
     //线程参数在堆上分配，使用完后由本线程释放
     std::unique_ptr<ThreadParam> param(reinterpret_cast<ThreadParam*>(dwUser));
-    CHtmlToText html_to_text;
-    html_to_text.ParseFromUrl(param->url);
+    std::wstring url = std::move(param->url);
+    for (;;)
     {
-        //只把结果写入临时变量，由UI线程通过ApplyPendingText换入共享数据，避免与UI线程产生数据竞争
-        std::lock_guard<std::mutex> lock(m_instance.m_data_mutex);
-        m_instance.m_pending_text = html_to_text.GetText();
-        m_instance.m_has_pending_text = true;
+        CHtmlToText html_to_text;
+        //只把下载成功的结果写入临时变量，由DataRequired通过ApplyPendingText换入共享数据。
+        //解析失败时保持现有内容不变(不置pending)，否则下次换入会把已加载的正文和章节表清空
+        if (html_to_text.ParseFromUrl(url))
+        {
+            std::lock_guard<std::mutex> lock(m_instance.m_data_mutex);
+            m_instance.m_pending_text = html_to_text.GetText();
+            m_instance.m_pending_url = url;
+            m_instance.m_has_pending_text = true;
+        }
+        //检查下载期间是否有新的请求，有则接续处理(否则运行期间发起的新请求要等到重启才能加载)
+        std::wstring next_url;
+        {
+            std::lock_guard<std::mutex> lock(m_instance.m_data_mutex);
+            if (m_instance.m_requested_url != url)
+            {
+                next_url = m_instance.m_requested_url;
+            }
+            else
+            {
+                //清除运行标志与检查新请求必须在同一把锁内完成，避免与LoadTextContents的置位竞争丢失请求
+                m_instance.m_is_thread_runing = false;
+                break;
+            }
+        }
+        url = std::move(next_url);
     }
-    m_instance.m_is_thread_runing = false;
     return 0;
 }
 
 void CDataManager::ApplyPendingText()
 {
-    bool has_pending = false;
     std::wstring pending;
+    std::wstring pending_url;
     {
         std::lock_guard<std::mutex> lock(m_data_mutex);
-        has_pending = m_has_pending_text;
-        if (has_pending)
-        {
-            pending.swap(m_pending_text);
-            m_has_pending_text = false;
-        }
+        if (!m_has_pending_text)
+            return;
+        pending.swap(m_pending_text);
+        pending_url = m_pending_url;
+        m_has_pending_text = false;
     }
-    if (has_pending)
+    //章节解析是耗时操作，在锁外用局部变量完成，避免长时间阻塞UI线程的读取
+    std::map<int, std::wstring> chapters = CChapterParser::ParseChapterData(pending);
     {
+        std::lock_guard<std::mutex> lock(m_data_mutex);
+        //归属校验：下载期间用户可能已切换到其他文件，此时丢弃过期的下载结果，避免覆盖当前选择
+        if (pending_url != m_requested_url)
+            return;
         //m_chapter_parser持有m_text_contents的引用，这里只赋值不重新构造，引用保持有效
         m_text_contents = std::move(pending);
-        m_chapter_parser.Parse();
+        m_chapter_parser.SetChapterData(std::move(chapters));
+        //重新载入的文本可能比已保存的阅读位置短，将阅读位置钳制回文本范围内
+        ClampReadPosition();
     }
+}
+
+void CDataManager::ClampReadPosition()
+{
+    //前置条件：调用方已持有m_data_mutex
+    if (m_setting_data.current_position < 0)
+        m_setting_data.current_position = 0;
+    else if (m_setting_data.current_position > static_cast<int>(m_text_contents.size()))
+        m_setting_data.current_position = static_cast<int>(m_text_contents.size());
 }

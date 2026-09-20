@@ -62,14 +62,15 @@ static std::string FourBytesToThreeBytes(const char* bytes, int len)
         equalNum++;
     len -= equalNum;
     std::string res;
-    res.resize(3, '\0');
-    res[0] = (base64DecodeTable[bytes[0]] << 2) | (base64DecodeTable[bytes[1]] >> 4);
+    res.resize(3 - equalNum, '\0');     //等号只是补位，按等号的数量裁剪掉输出末尾多余的'\0'
+    //查表时必须转成unsigned char，否则大于等于0x80的字节会变成负数下标
+    res[0] = (base64DecodeTable[static_cast<unsigned char>(bytes[0])] << 2) | (base64DecodeTable[static_cast<unsigned char>(bytes[1])] >> 4);
     if (len > 2)
     {
-        res[1] = ((base64DecodeTable[bytes[1]] << 4) & 0xf0) | (base64DecodeTable[bytes[2]] >> 2);
+        res[1] = ((base64DecodeTable[static_cast<unsigned char>(bytes[1])] << 4) & 0xf0) | (base64DecodeTable[static_cast<unsigned char>(bytes[2])] >> 2);
         if (len > 3)
         {
-            res[2] = ((base64DecodeTable[bytes[2]] << 6) & 0xc0) | (base64DecodeTable[bytes[3]]);
+            res[2] = ((base64DecodeTable[static_cast<unsigned char>(bytes[2])] << 6) & 0xc0) | (base64DecodeTable[static_cast<unsigned char>(bytes[3])]);
         }
     }
     return res;
@@ -91,10 +92,12 @@ std::string Base64Encode(const std::string& str_in)
 std::string Base64Decode(const std::string& str_in)
 {
     std::string res;
+    //合法的base64编码长度必为4的倍数且至少4个字符，否则视为非法输入直接返回
+    if (str_in.size() < 4 || str_in.size() % 4 != 0)
+        return res;
     for (size_t i = 0; i < str_in.size(); i += 4)
     {
-        int bytes_count = std::min(4, static_cast<int>(str_in.size() - i));
-        std::string threeBytes = FourBytesToThreeBytes(str_in.data() + i, bytes_count);
+        std::string threeBytes = FourBytesToThreeBytes(str_in.data() + i, 4);
         res.append(threeBytes);
     }
     return res;
@@ -113,6 +116,9 @@ bool IsBase64Code(const std::string& str, size_t max_length)
         return table;
     }();
     size_t length = str.size();
+    //合法的base64编码长度必为4的倍数且不为空，否则普通文本会被误判为base64
+    if (length == 0 || length % 4 != 0)
+        return false;
     if (max_length < length)
         length = max_length;
     for (size_t i = 0; i < length; i++)

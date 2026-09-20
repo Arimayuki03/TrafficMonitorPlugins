@@ -2,6 +2,7 @@
 #include "PluginInterface.h"
 #include "BatteryItem.h"
 #include <string>
+#include <mutex>
 
 class CBattery : public ITMPlugin
 {
@@ -20,11 +21,13 @@ public:
     virtual void* GetPluginIcon() override;
 
 private:
-
-private:
     static CBattery m_instance;
     CBatteryItem m_item;
     std::wstring m_tooltop_info;
+    //m_tooltop_info由监控线程DataRequired写、UI线程GetTooltipInfo读，加锁保护；
+    //UI侧不直接使用成员，而是锁内拷贝到副本再返回
+    std::mutex m_tooltip_mutex;
+    std::wstring m_tooltop_info_display;
 };
 
 #ifdef __cplusplus

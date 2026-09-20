@@ -27,7 +27,7 @@ protected:
 private:
 	CString m_title;
 	CString m_input_text;
-	CSize m_min_size;
+	CSize m_min_size{ 0, 0 };
 
 public:
 	virtual BOOL OnInitDialog();

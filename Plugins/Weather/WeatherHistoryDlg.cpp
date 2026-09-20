@@ -167,7 +167,7 @@ void CWeatherHistoryDlg::InitListData(const CString& cur_city)
     //在锁内复制历史数据，避免与后台刷新线程产生数据竞争
     auto history_all{ [&]() {
         std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
-        return g_data.HistoryWeatherMgr().GetHistoryWeather();
+        return g_data.HistoryWeatherMgr().GetHistoryWeatherCopy();
     }() };
     auto weather_iter = history_all.find(cur_city);
     if (weather_iter == history_all.end())
@@ -226,7 +226,7 @@ BOOL CWeatherHistoryDlg::OnInitDialog()
     //在锁内复制历史数据，避免与后台刷新线程产生数据竞争
     auto history_weather{ [&]() {
         std::lock_guard<std::recursive_mutex> lock(CWeather::Instance().m_data_mutex);
-        return g_data.HistoryWeatherMgr().GetHistoryWeather();
+        return g_data.HistoryWeatherMgr().GetHistoryWeatherCopy();
     }() };
     //初始化下拉框
     for (const auto& item : history_weather)

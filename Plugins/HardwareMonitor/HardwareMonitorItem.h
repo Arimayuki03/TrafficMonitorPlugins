@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "PluginInterface.h"
 #include <string>
+#include <mutex>
 #include "CommonData.h"
 
 namespace HardwareMonitor
@@ -25,6 +26,10 @@ namespace HardwareMonitor
     private:
         std::wstring identifier;
         std::wstring item_name;
+        //item_value_taskbar/item_value_main_wnd/item_value_num由监控线程UpdateValue写、UI线程绘制读，
+        //写侧在m_value_mutex内整体赋值，读侧(GetItemValueText/GetResourceUsageGraphValue)在锁内拷出副本使用
+        mutable std::mutex m_value_mutex;
+        mutable std::wstring m_value_text_cache;    //GetItemValueText为const成员，锁内拷贝副本的稳定缓冲
         std::wstring item_value_taskbar;
         std::wstring item_value_main_wnd;
         std::wstring label_text;

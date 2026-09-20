@@ -10,8 +10,8 @@ namespace utilities
 
 	CVariant::CVariant(size_t value)
 	{
-		m_value_int = static_cast<int>(value);
-		m_type = eType::UINT;
+		m_value_uint64 = value;
+		m_type = eType::UINT64;
 	}
 
 	CVariant::CVariant(double value)
@@ -46,6 +46,9 @@ namespace utilities
 			break;
 		case eType::UINT:
 			str = std::to_wstring(static_cast<unsigned int>(m_value_int));
+			break;
+		case eType::UINT64:
+			str = std::to_wstring(m_value_uint64);
 			break;
 		case CVariant::eType::DOUBLE:
 			str = std::to_wstring(m_value_double);

@@ -26,7 +26,7 @@ public:
 
 private:
     CComboBox m_weather_type_combo;
-    CSize m_min_size;		//窗口的最小大小
+    CSize m_min_size{ 0, 0 };		//窗口的最小大小
 
 private:
     void EnableControl();

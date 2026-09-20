@@ -38,6 +38,17 @@ CMenuIcon::CMenuIcon()
 {
 }
 
+void CMenuIcon::CleanUp()
+{
+    //释放所有图标转换生成的位图资源
+    for (const auto& iter : m_icon_map)
+    {
+        if (iter.second != NULL)
+            DeleteObject(iter.second);
+    }
+    m_icon_map.clear();
+}
+
 CMenuIcon::~CMenuIcon()
 {
 }
@@ -116,7 +127,7 @@ HRESULT CMenuIcon::GetBitmapByIcon(HICON hicon, HBITMAP& hbmp)
     else
     {
         if (CWICFactory::GetWIC() == nullptr)
-            return 0;
+            return E_FAIL;
         hbmp = NULL;
 
         IWICBitmap* pBitmap;

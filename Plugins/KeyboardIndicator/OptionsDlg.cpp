@@ -60,19 +60,24 @@ void COptionsDlg::OnOK()
     m_data.show_pressed_key = (IsDlgButtonChecked(IDC_SHOW_PRESSED_KEY_CHECK) != 0);
     //读取显示时长，限制在0~10000毫秒
     BOOL success = FALSE;
-    UINT show_time = GetDlgItemInt(IDC_PRESSED_KEY_SHOW_TIME_EDIT, &success, FALSE);
+    //带符号读取，负值按0处理(带bSigned=FALSE读取时负值会回绕成巨大的无符号数)
+    int show_time = GetDlgItemInt(IDC_PRESSED_KEY_SHOW_TIME_EDIT, &success, TRUE);
     if (!success)
         show_time = 1000;
+    if (show_time < 0)
+        show_time = 0;
     if (show_time > 10000)
         show_time = 10000;
-    m_data.pressed_key_show_time = static_cast<int>(show_time);
+    m_data.pressed_key_show_time = show_time;
     //读取按键区预留宽度，限制在0~300像素
-    UINT reserved_width = GetDlgItemInt(IDC_PRESSED_KEY_RESERVED_EDIT, &success, TRUE);
+    int reserved_width = GetDlgItemInt(IDC_PRESSED_KEY_RESERVED_EDIT, &success, TRUE);
     if (!success)
         reserved_width = 90;
+    if (reserved_width < 0)
+        reserved_width = 0;
     if (reserved_width > 300)
         reserved_width = 300;
-    m_data.pressed_key_reserved_width = static_cast<int>(reserved_width);
+    m_data.pressed_key_reserved_width = reserved_width;
 
     //所有显示项都被关闭时给出警告
     if (!m_data.show_caps_lock && !m_data.show_num_lock && !m_data.show_scroll_lock && !m_data.show_pressed_key)

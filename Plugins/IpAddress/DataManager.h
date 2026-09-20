@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <map>
+#include <mutex>
 #include "resource.h"
 #include "AdapterCommon.h"
 
@@ -30,13 +31,14 @@ public:
     int RDPI(int pixel);
     HICON GetIcon(UINT id);
 
-    void UpdateConnections();
-    bool GetLocalIPv4Address(std::wstring& ipv4address);
-    std::wstring GetCurrentIPv4Address();       //获取当前选择的连接的IPv4地址（结果同时保存在m_current_ipv4中）
-    const std::vector<NetWorkConection>& GetAllConnections() const;
+    //以下接口的共享数据会被宿主监控线程(DataRequired)与UI线程并发访问，内部由m_data_mutex保护
+    void UpdateConnections();       //刷新网络连接列表并在锁内重建IPv4快照（监控线程定时刷新、UI线程手动刷新时调用）
+    void SetCurrentConnectionName(const std::wstring& connection_name);     //更改所选连接并在锁内重算IPv4快照（UI线程调用）
+    std::wstring GetCurrentConnectionName() const;      //锁内拷出所选连接名称，只读不写
+    std::wstring GetCurrentIPv4Address() const;     //锁内拷出IPv4快照的副本，只读不写
+    std::vector<NetWorkConection> GetAllConnections() const;        //锁内拷出连接列表副本，只读不写
 
     SettingData m_setting_data;
-    std::wstring m_current_ipv4;                //当前显示的IPv4地址，避免GetItemValueText使用函数级static变量
 
 private:
     static CDataManager m_instance;
@@ -46,4 +48,8 @@ private:
     int m_dpi{ 96 };
 
     std::vector<NetWorkConection> m_connections;    //所有网络连接
+    std::wstring m_current_ipv4;                //当前显示的IPv4地址值快照，仅UpdateConnections/LoadConfig/SetCurrentConnectionName在锁内整体赋值
+    mutable std::mutex m_data_mutex;    //保护m_connections、m_current_ipv4、m_setting_data.current_connection_name、m_string_table
+
+    void RebuildCurrentIPv4();      //根据当前选择重算IPv4快照，需在持有m_data_mutex时调用
 };

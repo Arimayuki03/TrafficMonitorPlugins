@@ -13,10 +13,22 @@ namespace HardwareMonitor
         }
         else
         {
-            const wchar_t* chars = (const wchar_t*)(Runtime::InteropServices::Marshal::StringToHGlobalUni(str)).ToPointer();
-            std::wstring os = chars;
-            Runtime::InteropServices::Marshal::FreeHGlobal(IntPtr((void*)chars));
-            return os;
+            IntPtr chars = Runtime::InteropServices::Marshal::StringToHGlobalUni(str);
+            if (chars == IntPtr::Zero)
+                return std::wstring();
+            try
+            {
+                //用try/catch保证任何路径下都会释放临时缓冲区(此函数被高频调用，
+                //wstring构造抛异常时泄漏会持续累积)
+                std::wstring os = static_cast<const wchar_t*>(chars.ToPointer());
+                Runtime::InteropServices::Marshal::FreeHGlobal(chars);
+                return os;
+            }
+            catch (...)
+            {
+                Runtime::InteropServices::Marshal::FreeHGlobal(chars);
+                return std::wstring();
+            }
         }
     }
 
@@ -90,8 +102,9 @@ namespace HardwareMonitor
             // 只有包含子节点的节点才需要保存展开状态
             if (node->Nodes->Count > 0)
             {
-                // 构建当前节点的路径
-                String^ nodePath = path + "/" + node->Text;
+                // 用节点的Name(稳定的硬件Identifier等)构建路径，
+                // 不用Text(本地化显示文本)，否则切换语言后已保存的状态会失效
+                String^ nodePath = path + "/" + node->Name;
 
                 // 保存当前节点的展开状态
                 if (!node->IsExpanded)
@@ -119,8 +132,8 @@ namespace HardwareMonitor
             // 只有包含子节点的节点才需要恢复展开状态
             if (node->Nodes->Count > 0)
             {
-                // 构建当前节点的路径
-                String^ nodePath = path + "/" + node->Text;
+                // 与保存时一致，按节点的Name(稳定标识符)构建路径
+                String^ nodePath = path + "/" + node->Name;
 
                 // 如果Set中包含当前节点的路径，则将其折叠
                 if (treeCollapseNodes->Contains(nodePath))

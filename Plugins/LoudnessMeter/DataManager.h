@@ -8,7 +8,7 @@
 
 struct SettingData
 {
-    bool show_db;       //显示分贝值
+    bool show_db{ false };      //显示分贝值
 };
 
 class CDataManager

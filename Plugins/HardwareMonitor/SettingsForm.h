@@ -83,7 +83,9 @@ namespace HardwareMonitor {
 
     protected:
         bool IsSelectionValid();
-        ItemInfo& GetSelectedItemInfo();
+        //返回选中项对应的ItemInfo指针，未选中或找不到配置时返回nullptr
+        //(不返回共享的兜底对象，避免调用方写入兜底对象造成数据污染)
+        ItemInfo* GetSelectedItemInfo();
         void EnableControls();
 
         //ListBox显示的项是items_info的子集(传感器缺失的项不显示)，

@@ -118,10 +118,19 @@ namespace HardwareMonitor
 
     ISensor^ HardwareMonitorHelper::FindSensorByIdentifyer(String^ identifyer)
     {
+        MonitorGlobal^ monitor_global = MonitorGlobal::Instance();
         ISensor^ sensor;
-        if (!MonitorGlobal::Instance()->sensorMap->TryGetValue(identifyer, sensor))
         {
-            auto computer = MonitorGlobal::Instance()->computer;
+            //sensorMap是托管Dictionary(非线程安全)，被监控线程与UI线程并发访问，
+            //所有访问(查找/Add/Clear)都必须持有m_sensor_mutex；
+            //临界区内只做Dictionary的短时托管调用，不会重入本锁
+            std::lock_guard<std::mutex> lock(CHardwareMonitor::GetInstance()->m_sensor_mutex);
+            monitor_global->sensorMap->TryGetValue(identifyer, sensor);
+        }
+        if (sensor == nullptr)
+        {
+            //缓存未命中时重新查找(查找过程较重，放在锁外进行)
+            auto computer = monitor_global->computer;
             gcroot<String^> _identifyer = identifyer;       //使用gcroot包装托管类指针，以便被lambda捕获
             for each (IHardware^ hardware in computer->Hardware)
             {
@@ -131,7 +140,14 @@ namespace HardwareMonitor
                 if (sensor != nullptr)
                     break;
             }
-            MonitorGlobal::Instance()->sensorMap->Add(identifyer, sensor);
+            //只缓存非空结果：传感器不存在(硬件被禁用或已拔出)时不缓存，
+            //否则硬件恢复后也无法重新查找到
+            if (sensor != nullptr)
+            {
+                std::lock_guard<std::mutex> lock(CHardwareMonitor::GetInstance()->m_sensor_mutex);
+                monitor_global->sensorMap->Remove(identifyer);      //先移除避免并发重复添加时Add抛出重复键异常
+                monitor_global->sensorMap->Add(identifyer, sensor);
+            }
         }
         return sensor;
     }

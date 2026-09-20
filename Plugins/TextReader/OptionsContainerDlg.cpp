@@ -30,6 +30,7 @@ void COptionsContainerDlg::DoDataExchange(CDataExchange* pDX)
 
 
 BEGIN_MESSAGE_MAP(COptionsContainerDlg, CDialog)
+    ON_WM_DESTROY()
     ON_WM_GETMINMAXINFO()
     ON_NOTIFY(NM_CLICK, IDC_HELP_SYSLINK1, &COptionsContainerDlg::OnNMClickHelpSyslink1)
 END_MESSAGE_MAP()
@@ -55,8 +56,9 @@ BOOL COptionsContainerDlg::OnInitDialog()
 
     // TODO:  在此添加额外的初始化
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, g_data.DPI(16), g_data.DPI(16), 0);
-    SetIcon(hIcon, FALSE);
+    //图标保存在成员变量中，在OnDestroy中销毁，避免每次打开选项对话框泄漏一个HICON
+    m_hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, g_data.DPI(16), g_data.DPI(16), 0);
+    SetIcon(m_hIcon, FALSE);
     
     //获取初始时的大小
     CRect rect;
@@ -76,13 +78,12 @@ BOOL COptionsContainerDlg::OnInitDialog()
     m_bookmark_dlg.AdjustColumeWidth();
 
     //为每个标签添加图标
-    CImageList ImageList;
-    ImageList.Create(g_data.DPI(16), g_data.DPI(16), ILC_COLOR32 | ILC_MASK, 2, 2);
-    ImageList.Add(g_data.GetIcon(IDI_SETTINGS));
-    ImageList.Add(g_data.GetIcon(IDI_CHAPTER));
-    ImageList.Add(g_data.GetIcon(IDI_BOOKMARK));
-    m_tab_ctrl.SetImageList(&ImageList);
-    ImageList.Detach();
+    //图标列表保存在成员变量中，由其析构函数负责释放(原来的局部变量Detach后泄漏一个HIMAGELIST)
+    m_image_list.Create(g_data.DPI(16), g_data.DPI(16), ILC_COLOR32 | ILC_MASK, 2, 2);
+    m_image_list.Add(g_data.GetIcon(IDI_SETTINGS));
+    m_image_list.Add(g_data.GetIcon(IDI_CHAPTER));
+    m_image_list.Add(g_data.GetIcon(IDI_BOOKMARK));
+    m_tab_ctrl.SetImageList(&m_image_list);
 
     m_tab_ctrl.SetItemSize(CSize(g_data.DPI(60), g_data.DPI(24)));
     m_tab_ctrl.AdjustTabWindowSize();
@@ -95,6 +96,18 @@ BOOL COptionsContainerDlg::OnInitDialog()
 
     return TRUE;  // return TRUE unless you set the focus to a control
                   // 异常: OCX 属性页应返回 FALSE
+}
+
+
+void COptionsContainerDlg::OnDestroy()
+{
+    //销毁对话框图标(原来每次打开选项对话框都会泄漏一个HICON)
+    if (m_hIcon != NULL)
+    {
+        ::DestroyIcon(m_hIcon);
+        m_hIcon = NULL;
+    }
+    CDialog::OnDestroy();
 }
 
 

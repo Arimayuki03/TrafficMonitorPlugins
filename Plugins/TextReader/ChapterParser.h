@@ -7,6 +7,10 @@ public:
     CChapterParser(const std::wstring& contents);
     ~CChapterParser();
     void Parse();
+    //解析一段文本中的章节，返回章节表。纯函数不修改成员，供在锁外预先解析用
+    static std::map<int, std::wstring> ParseChapterData(const std::wstring& contents);
+    //整体换入章节表
+    void SetChapterData(std::map<int, std::wstring>&& data);
     const std::map<int, std::wstring>& GetChapterData() const;
     std::wstring GetChapterTitle(int chapter_index) const;
     std::wstring GetCurrentChapterTitle() const;

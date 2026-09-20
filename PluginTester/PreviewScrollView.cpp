@@ -181,6 +181,8 @@ void CDrawScrollView::SetSize(CSize size)
 
 void CDrawScrollView::PluginChanged()
 {
+    //切换插件后清除已保存的显示项目位置，避免使用旧插件的位置数据
+    m_plugin_item_rect.clear();
     m_plugin_item_clicked = nullptr;
 }
 
@@ -199,7 +201,9 @@ void CDrawScrollView::UpdateMouseToolTip()
         ITMPlugin* plugin = dlg->GetCurrentPlugin().plugin;
         if (plugin != nullptr)
         {
-            tip_info = plugin->GetTooltipInfo();
+            const wchar_t* tooltip_info = plugin->GetTooltipInfo();
+            if (tooltip_info != nullptr)
+                tip_info = tooltip_info;
             m_tool_tips.UpdateTipText(tip_info, this);
         }
     }

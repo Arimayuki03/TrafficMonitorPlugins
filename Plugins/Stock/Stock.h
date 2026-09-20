@@ -68,12 +68,13 @@ private:
     vector<StockItem> m_items;
 
     std::atomic<bool> m_is_thread_runing{ false };
-    CManagerDialog *m_option_dlg{};         // 保存选项设置对话框的句柄
     std::atomic<unsigned __int64> m_last_request_time{ 0 }; // 上次请求的时间
     std::atomic<bool> m_update_in_progress{ false };        // 是否正在更新行情(用于在UI线程中刷新菜单状态)
     CMenu m_menu;
 
     CFloatingWnd *m_pFloatingWnd;
+    //悬浮窗使用的字体，由宿主窗口字体复制LOGFONT而来的插件自有副本(不能直接持有宿主窗口的CFont*)
+    CFont m_floating_wnd_font;
 };
 
 #ifdef __cplusplus

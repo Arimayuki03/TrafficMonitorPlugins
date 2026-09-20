@@ -117,11 +117,24 @@ void STOCK::StockInfo::Load(std::wstring key, std::vector<std::string> data_arr)
 
   if (currentPrice > 0 && prevClosePrice > 0)
   {
+    //网络数据可能解析出1e300一类的极端值，%.2f会展开成三百多位字符溢出char[32]，
+    //sprintf_s触发invalid parameter handler使宿主进程0xC0000409快速失败，必须先钳制幅度
     char buff[32];
-    sprintf_s(buff, "%.2f", currentPrice);
+    double display_price = currentPrice;
+    //A股/港股/美股单股价格现实范围远小于1e6，超限视为脏数据
+    const double PRICE_DISPLAY_MAX = 1e6;
+    if (display_price > PRICE_DISPLAY_MAX)
+      display_price = PRICE_DISPLAY_MAX;
+    sprintf_s(buff, "%.2f", display_price);
     displayPrice = CCommon::StrToUnicode(buff);
 
-    sprintf_s(buff, "%.2f%%", ((currentPrice - prevClosePrice) / prevClosePrice * 100));
+    double fluctuation = ((currentPrice - prevClosePrice) / prevClosePrice * 100);
+    const double FLUCTUATION_DISPLAY_MAX = 1e4;
+    if (fluctuation > FLUCTUATION_DISPLAY_MAX)
+      fluctuation = FLUCTUATION_DISPLAY_MAX;
+    else if (fluctuation < -FLUCTUATION_DISPLAY_MAX)
+      fluctuation = -FLUCTUATION_DISPLAY_MAX;
+    sprintf_s(buff, "%.2f%%", fluctuation);
     displayFluctuation = CCommon::StrToUnicode(buff);
   }
 }

@@ -28,12 +28,16 @@ IPluginItem* CIpAddress::GetItem(int index)
 
 const wchar_t* CIpAddress::GetTooltipInfo()
 {
-    return m_tooltip_info.c_str();
+    //接口要求返回的指针在调用后仍有效，这里拷入UI线程专用的副本后返回其c_str()
+    std::lock_guard<std::mutex> lock(m_tooltip_mutex);
+    m_tooltip_info_ui = m_tooltip_info;
+    return m_tooltip_info_ui.c_str();
 }
 
 void CIpAddress::DataRequired()
 {
     //每隔10秒自动刷新一次网络连接信息，否则网络切换后任务栏会一直显示旧IP
+    //本函数在宿主监控线程中调用，写快照在锁内完成后交由UI线程读取
     DWORD tick = GetTickCount();
     if (m_last_refresh_tick == 0 || tick - m_last_refresh_tick >= 10000)
     {
@@ -41,9 +45,11 @@ void CIpAddress::DataRequired()
         g_data.UpdateConnections();
         //生成鼠标提示信息
         std::wstring ip = g_data.GetCurrentIPv4Address();
-        m_tooltip_info = g_data.StringRes(IDS_PLUGIN_ITEM_NAME).GetString();
-        m_tooltip_info += L": ";
-        m_tooltip_info += ip.empty() ? L"N/A" : ip;
+        std::wstring tooltip_info = g_data.StringRes(IDS_PLUGIN_ITEM_NAME).GetString();
+        tooltip_info += L": ";
+        tooltip_info += ip.empty() ? L"N/A" : ip;
+        std::lock_guard<std::mutex> lock(m_tooltip_mutex);
+        m_tooltip_info = std::move(tooltip_info);
     }
 }
 
@@ -52,10 +58,10 @@ ITMPlugin::OptionReturn CIpAddress::ShowOptionsDialog(void* hParent)
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
     CWnd* pParent = CWnd::FromHandle((HWND)hParent);
     COptionsDlg dlg(pParent);
-    dlg.m_data = g_data.m_setting_data;
+    dlg.m_data.current_connection_name = g_data.GetCurrentConnectionName();
     if (dlg.DoModal() == IDOK)
     {
-        g_data.m_setting_data = dlg.m_data;
+        g_data.SetCurrentConnectionName(dlg.m_data.current_connection_name);
         g_data.SaveConfig();
         return ITMPlugin::OR_OPTION_CHANGED;
     }

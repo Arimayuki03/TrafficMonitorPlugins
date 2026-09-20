@@ -62,15 +62,22 @@ namespace HardwareMonitor
 
     void SettingsForm::UpdateItemsValue()
     {
+        //此函数可能由宿主监控线程通过BeginInvoke封送到UI线程执行，
+        //窗体关闭后不再更新(此时控件可能已释放)
+        if (this->IsDisposed)
+            return;
         for each (const auto & obj in monitorItemListBox->Items)
         {
             ListItemInfo^ listItem = dynamic_cast<ListItemInfo^>(obj);
             if (listItem != nullptr && listItem->sensor != nullptr)
             {
                 String^ identifyer = HardwareMonitorHelper::GetSensorIdentifyer(listItem->sensor);
-                ItemInfo& itemInfo = CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(Common::StringToStdWstring(identifyer));
-                //获取displayValue
-                listItem->displayValue = HardwareMonitorHelper::GetSensorValueText(listItem->sensor, gcnew String(itemInfo.unit.c_str()), itemInfo.decimal_places, itemInfo.show_unit);
+                ItemInfo* itemInfo = CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(Common::StringToStdWstring(identifyer));
+                if (itemInfo != nullptr)
+                {
+                    //获取displayValue
+                    listItem->displayValue = HardwareMonitorHelper::GetSensorValueText(listItem->sensor, gcnew String(itemInfo->unit.c_str()), itemInfo->decimal_places, itemInfo->show_unit);
+                }
             }
         }
         monitorItemListBox->Invalidate();
@@ -120,7 +127,7 @@ namespace HardwareMonitor
         return (monitorItemListBox->SelectedIndex >= 0 && monitorItemListBox->SelectedIndex < monitorItemListBox->Items->Count);
     }
 
-    ItemInfo& SettingsForm::GetSelectedItemInfo()
+    ItemInfo* SettingsForm::GetSelectedItemInfo()
     {
         int index = monitorItemListBox->SelectedIndex;
         if (index >= 0 && index < monitorItemListBox->Items->Count)
@@ -132,8 +139,8 @@ namespace HardwareMonitor
                 return CHardwareMonitor::GetInstance()->m_settings.FindItemInfo(Common::StringToStdWstring(identifyer));
             }
         }
-        static ItemInfo emptyInfo;
-        return emptyInfo;
+        //找不到时返回nullptr，由调用方处理，不返回共享的兜底对象
+        return nullptr;
     }
 
     void SettingsForm::EnableControls()
@@ -160,42 +167,45 @@ namespace HardwareMonitor
         //设置选中项对应的设置控件
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            if (item_info.decimal_places >= 0 && item_info.decimal_places < decimalPlaceCombo->Items->Count)
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
             {
-                decimalPlaceCombo->SelectedIndex = item_info.decimal_places;
-            }
-            else
-            {
-                decimalPlaceCombo->SelectedIndex = -1;
-            }
-
-            specifyValueWidthCheck->Checked = item_info.specify_value_width;
-            valueWidthEdit->Value = item_info.value_width;
-
-            showUnitCheck->Checked = item_info.show_unit;
-            //填充“单位选择”下拉列表
-            unitCombo->Items->Clear();
-            ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info.identifyer.c_str()));
-            if (sensor != nullptr)
-            {
-                List<String^>^ unitList = HardwareMonitorHelper::GetSensorTypeUnit(sensor->SensorType);
-                for each (String ^ unit in unitList)
+                if (item_info->decimal_places >= 0 && item_info->decimal_places < decimalPlaceCombo->Items->Count)
                 {
-                    unitCombo->Items->Add(unit);
+                    decimalPlaceCombo->SelectedIndex = item_info->decimal_places;
                 }
-            }
-            if (unitCombo->Items->Count > 0)
-            {
-                int index = unitCombo->FindString(gcnew String(item_info.unit.c_str()));
-                if (index >= 0)
-                    unitCombo->SelectedIndex = index;
                 else
-                    unitCombo->SelectedIndex = 0;
+                {
+                    decimalPlaceCombo->SelectedIndex = -1;
+                }
+
+                specifyValueWidthCheck->Checked = item_info->specify_value_width;
+                valueWidthEdit->Value = item_info->value_width;
+
+                showUnitCheck->Checked = item_info->show_unit;
+                //填充“单位选择”下拉列表
+                unitCombo->Items->Clear();
+                ISensor^ sensor = HardwareMonitorHelper::FindSensorByIdentifyer(gcnew String(item_info->identifyer.c_str()));
+                if (sensor != nullptr)
+                {
+                    List<String^>^ unitList = HardwareMonitorHelper::GetSensorTypeUnit(sensor->SensorType);
+                    for each (String ^ unit in unitList)
+                    {
+                        unitCombo->Items->Add(unit);
+                    }
+                }
+                if (unitCombo->Items->Count > 0)
+                {
+                    int index = unitCombo->FindString(gcnew String(item_info->unit.c_str()));
+                    if (index >= 0)
+                        unitCombo->SelectedIndex = index;
+                    else
+                        unitCombo->SelectedIndex = 0;
+                }
+                //设置超过指定数值时显示通知
+                showNotifyCheck->Checked = item_info->show_notify;
+                notifyValueEdit->Value = System::Decimal(item_info->notify_value);
             }
-            //设置超过指定数值时显示通知
-            showNotifyCheck->Checked = item_info.show_notify;
-            notifyValueEdit->Value = System::Decimal(item_info.notify_value);
         }
     }
 
@@ -203,8 +213,11 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.decimal_places = decimalPlaceCombo->SelectedIndex;
+            ItemInfo* item_info = GetSelectedItemInfo();
+            int index = decimalPlaceCombo->SelectedIndex;
+            //SelectedIndex为-1(未选中)时不回写，防止-1落盘后显示"xF-1"格式的错误文本
+            if (item_info != nullptr && index >= 0 && index < decimalPlaceCombo->Items->Count)
+                item_info->decimal_places = index;
         }
     }
 
@@ -234,7 +247,14 @@ namespace HardwareMonitor
         Common::SaveFormSize(this, L"settings");
 
         //更改了监控的硬件设置后，传感器可能会发生变化，因此这里清空传感器缓存
-        MonitorGlobal::Instance()->sensorMap->Clear();
+        //(sensorMap中的缓存项由FindSensorByIdentifyer在下次访问时重新查找)
+        //sensorMap非线程安全，Clear也要与FindSensorByIdentifyer的查找/Add持同一把锁
+        {
+            std::lock_guard<std::mutex> lock(CHardwareMonitor::GetInstance()->m_sensor_mutex);
+            MonitorGlobal::Instance()->sensorMap->Clear();
+        }
+        //传感器集合可能已变化，重建显示项目列表，让数值重新拉取而不是停留在旧值上
+        CHardwareMonitor::GetInstance()->RebuildDisplayItems();
     }
 
     void SettingsForm::ListBox_DrawItem(Object^ sender, DrawItemEventArgs^ e)
@@ -288,8 +308,12 @@ namespace HardwareMonitor
         }
 
         //计算右侧数值部分的宽度
-        SizeF rightTextSize = e->Graphics->MeasureString(listItem->displayValue, monitorItemListBox->Font);
-        int rightWidth = std::min(bounds.Width, (int)rightTextSize.Width + CHardwareMonitor::GetInstance()->DPI(4));
+        int rightWidth = 0;
+        if (listItem->displayValue != nullptr)
+        {
+            SizeF rightTextSize = e->Graphics->MeasureString(listItem->displayValue, monitorItemListBox->Font);
+            rightWidth = std::min(bounds.Width, (int)rightTextSize.Width + CHardwareMonitor::GetInstance()->DPI(4));
+        }
         Rectangle rightRect = Rectangle(bounds.Right - rightWidth, bounds.Top, rightWidth, bounds.Height);
         Rectangle leftRect = Rectangle(bounds.Left, bounds.Top, bounds.Width - rightWidth, bounds.Height);
 
@@ -334,8 +358,9 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.specify_value_width = specifyValueWidthCheck->Checked;
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
+                item_info->specify_value_width = specifyValueWidthCheck->Checked;
         }
         EnableControls();
     }
@@ -344,8 +369,9 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.value_width = static_cast<int>(valueWidthEdit->Value);
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
+                item_info->value_width = static_cast<int>(valueWidthEdit->Value);
         }
     }
 
@@ -353,12 +379,12 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
+            ItemInfo* item_info = GetSelectedItemInfo();
             int index = unitCombo->SelectedIndex;
-            if (index >= 0 && index < unitCombo->Items->Count)
+            if (item_info != nullptr && index >= 0 && index < unitCombo->Items->Count)
             {
                 String^ unit = unitCombo->Items[index]->ToString();
-                item_info.unit = Common::StringToStdWstring(unit);
+                item_info->unit = Common::StringToStdWstring(unit);
             }
         }
     }
@@ -371,16 +397,13 @@ namespace HardwareMonitor
             if (index > 0 && index < m_list_to_info_index->Count)
             {
                 //ListBox索引与items_info索引不同(部分配置项不会显示在列表中)，必须通过映射表转换
+                //SwapDisplayItems内部会做边界检查(索引有效即可交换，边界不能过严)并持锁完成交换
                 int info_index = m_list_to_info_index[index];
                 int info_index2 = m_list_to_info_index[index - 1];
-                auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
-                if (info_index > 0 && info_index < static_cast<int>(items_info.size())
-                    && info_index2 > 0 && info_index2 < static_cast<int>(items_info.size()))
+                if (CHardwareMonitor::GetInstance()->SwapDisplayItems(info_index, info_index2))
                 {
                     //交换列表中当前项和前一项的文本
                     Common::SwapListBoxItems(monitorItemListBox, index, index - 1);
-                    //交换ItemInfo
-                    std::swap(items_info[info_index], items_info[info_index2]);
                     //同步交换索引映射
                     int tmp = m_list_to_info_index[index];
                     m_list_to_info_index[index] = m_list_to_info_index[index - 1];
@@ -400,16 +423,13 @@ namespace HardwareMonitor
             if (index >= 0 && index < m_list_to_info_index->Count - 1)
             {
                 //ListBox索引与items_info索引不同(部分配置项不会显示在列表中)，必须通过映射表转换
+                //SwapDisplayItems内部会做边界检查(索引有效即可交换，边界不能过严)并持锁完成交换
                 int info_index = m_list_to_info_index[index];
                 int info_index2 = m_list_to_info_index[index + 1];
-                auto& items_info{ CHardwareMonitor::GetInstance()->m_settings.items_info };
-                if (info_index >= 0 && info_index < static_cast<int>(items_info.size()) - 1
-                    && info_index2 >= 0 && info_index2 < static_cast<int>(items_info.size()) - 1)
+                if (CHardwareMonitor::GetInstance()->SwapDisplayItems(info_index, info_index2))
                 {
                     //交换列表中当前项和后一项的文本
                     Common::SwapListBoxItems(monitorItemListBox, index, index + 1);
-                    //交换ItemInfo
-                    std::swap(items_info[info_index], items_info[info_index2]);
                     //同步交换索引映射
                     int tmp = m_list_to_info_index[index];
                     m_list_to_info_index[index] = m_list_to_info_index[index + 1];
@@ -437,8 +457,9 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.show_unit = showUnitCheck->Checked;
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
+                item_info->show_unit = showUnitCheck->Checked;
         }
     }
 
@@ -446,8 +467,9 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.show_notify = showNotifyCheck->Checked;
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
+                item_info->show_notify = showNotifyCheck->Checked;
         }
         EnableControls();
     }
@@ -456,8 +478,9 @@ namespace HardwareMonitor
     {
         if (IsSelectionValid())
         {
-            ItemInfo& item_info = GetSelectedItemInfo();
-            item_info.notify_value = static_cast<double>(notifyValueEdit->Value);
+            ItemInfo* item_info = GetSelectedItemInfo();
+            if (item_info != nullptr)
+                item_info->notify_value = static_cast<double>(notifyValueEdit->Value);
         }
     }
 }

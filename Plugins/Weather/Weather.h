@@ -22,7 +22,6 @@ public:
     virtual void OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* data) override;
     virtual void* GetPluginIcon() override;
     void SendWetherInfoQequest();
-    void ShowContextMenu(CWnd* pWnd);
     void DisableUpdateWeatherCommand();
     void EnableUpdateWeatherCommand();
     int GetCommandCount() override;
@@ -44,7 +43,6 @@ public:
 private:
     static UINT ThreadCallback(LPVOID dwUser);
     bool ParseJsonData(std::string json_data);
-    void LoadContextMenu();
 
 private:
     static CWeather m_instance;
@@ -52,8 +50,7 @@ private:
     std::atomic<bool> m_is_thread_runing{ false };
     std::wstring m_tooltop_info;
     std::atomic<unsigned __int64> m_last_request_time{ 0 }; //上次请求天气的时间
-    std::atomic<bool> m_update_in_progress{ false };        //是否正在更新天气(用于在UI线程中刷新菜单/按钮状态)
-    CMenu m_menu;
+    std::atomic<bool> m_update_in_progress{ false };        //是否正在更新天气(用于在UI线程中刷新按钮状态)
     CString m_cur_city;
 };
 

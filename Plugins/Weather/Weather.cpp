@@ -36,12 +36,12 @@ UINT CWeather::ThreadCallback(LPVOID dwUser)
         //标记正在更新，并通知选项设置对话框禁用“更新”按钮(不能在后台线程直接操作UI)
         m_instance.DisableUpdateWeatherCommand();
 
-        if (g_data.m_setting_data.auto_locate)      //自动获取当前城市
+        if (g_data.GetSettingData().auto_locate)    //自动获取当前城市(在锁内读取设置，设置会被UI线程并发修改)
         {
             std::wstring cur_city = CCurLocationHelper::GetCurrentCity();
             int auto_located_city = CCurLocationHelper::FindCityCodeItem(cur_city);
             {
-                std::lock_guard<std::recursive_mutex> lock(m_instance.m_data_mutex);
+                std::lock_guard<std::recursive_mutex> lock(g_data.m_settings_mutex);
                 g_data.m_auto_locate_succeed = (auto_located_city >= 0);
                 g_data.m_auto_located = true;
                 if (g_data.m_auto_locate_succeed)
@@ -61,7 +61,8 @@ UINT CWeather::ThreadCallback(LPVOID dwUser)
                 std::ofstream stream{ g_data.m_config_dir + L"Weather.json" };
                 if (stream.is_open())
                     stream << weather_data;
-                //保存历史天气数据(先清理超过30天的过期数据)
+                //保存历史天气数据(先清理超过30天的过期数据)。PruneExpiredData/Save内部通过
+                //m_history_mutex保护历史数据，Save在锁内复制数据后在锁外写文件
                 g_data.HistoryWeatherMgr().PruneExpiredData();
                 g_data.HistoryWeatherMgr().Save();
             }
@@ -223,7 +224,11 @@ bool CWeather::ParseJsonData(std::string json_data)
 
         g_data.ResetText();
 
-        g_data.m_update_time = CTime(year, month, day, hour, minute, 0);
+        {
+            //m_update_time由后台解析线程写、UI线程读，需要加锁保护
+            std::lock_guard<std::recursive_mutex> lock(g_data.m_settings_mutex);
+            g_data.m_update_time = CTime(year, month, day, hour, minute, 0);
+        }
 
         //获取当前天气
         yyjson_val* weather_node = yyjson_obj_get(real_node, "weather");
@@ -279,7 +284,11 @@ bool CWeather::ParseJsonData(std::string json_data)
         const WeatherInfo& weather_today{ g_data.m_weather_info[WEATHER_TODAY] };
         const WeatherInfo& weather_tomorrow{ g_data.m_weather_info[WEATHER_TOMMORROW] };
         const WeatherInfo& weather_day2{ g_data.m_weather_info[WEATHER_DAY2] };
-        CTime update_date = CCommon::GetDateOnly(g_data.m_update_time);
+        CTime update_date;
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_data.m_settings_mutex);
+            update_date = CCommon::GetDateOnly(g_data.m_update_time);
+        }
         const CTimeSpan one_day_span(1, 0, 0, 0);
         CTime tomorrow_date = update_date + one_day_span;
         CTime the_day_after_tomorrow_date = tomorrow_date + one_day_span;
@@ -299,15 +308,6 @@ bool CWeather::ParseJsonData(std::string json_data)
     }
     yyjson_doc_free(doc);
     return succeed;
-}
-
-void CWeather::LoadContextMenu()
-{
-    if (m_menu.m_hMenu == NULL)
-    {
-        AFX_MANAGE_STATE(AfxGetStaticModuleState());
-        m_menu.LoadMenu(IDR_MENU1);
-    }
 }
 
 IPluginItem* CWeather::GetItem(int index)
@@ -359,13 +359,27 @@ ITMPlugin::OptionReturn CWeather::ShowOptionsDialog(void* hParent)
     CWnd* pParent = CWnd::FromHandle((HWND)hParent);
     //g_data.DPIFromWindow(pParent);
     COptionsDlg dlg(pParent);
-    dlg.m_data = g_data.m_setting_data;
+    //打开对话框时复制一份设置数据到对话框，避免直接引用被后台线程并发修改的共享数据
+    dlg.m_data = g_data.GetSettingData();
     auto rtn = dlg.DoModal();
     if (rtn == IDOK)
     {
-        bool city_changed{ g_data.m_setting_data.m_city_index != dlg.m_data.m_city_index ||
-            g_data.m_setting_data.auto_locate != dlg.m_data.auto_locate };
-        g_data.m_setting_data = dlg.m_data;
+        bool city_changed{ false };
+        {
+            std::lock_guard<std::recursive_mutex> lock(g_data.m_settings_mutex);
+            //合并保存：只覆盖对话框管理的选项。“自动定位”开启时城市序号保留共享数据中的当前值，
+            //避免对话框打开期间后台线程写入的自动定位结果被对话框打开时的旧副本回滚
+            SettingData saved{ g_data.m_setting_data };
+            saved.m_weather_selected = dlg.m_data.m_weather_selected;
+            saved.m_show_weather_in_tooltips = dlg.m_data.m_show_weather_in_tooltips;
+            saved.m_use_weather_icon = dlg.m_data.m_use_weather_icon;
+            saved.auto_locate = dlg.m_data.auto_locate;
+            if (!dlg.m_data.auto_locate)
+                saved.m_city_index = dlg.m_data.m_city_index;   //关闭自动定位时以对话框中选择的城市为准
+            city_changed = (g_data.m_setting_data.m_city_index != saved.m_city_index
+                || g_data.m_setting_data.auto_locate != saved.auto_locate);
+            g_data.m_setting_data = saved;
+        }
         if (city_changed)
         {
             CWeather::Instance().SendWetherInfoQequest();   //城市改变后，重新发送天气请求
@@ -438,42 +452,6 @@ void CWeather::SendWetherInfoQequest()
     }
 }
 
-void CWeather::ShowContextMenu(CWnd* pWnd)
-{
-    LoadContextMenu();
-    CMenu* context_menu = m_menu.GetSubMenu(0);
-    if (context_menu != nullptr)
-    {
-        //“更新天气”菜单项的状态在UI线程中刷新(后台线程不能直接操作菜单)
-        context_menu->EnableMenuItem(ID_UPDATE_WEATHER, MF_BYCOMMAND | (m_update_in_progress ? MF_GRAYED : MF_ENABLED));
-        CPoint point1;
-        GetCursorPos(&point1);
-        DWORD id = context_menu->TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, point1.x, point1.y, pWnd);
-        //点击了“选项”
-        if (id == ID_OPTIONS)
-        {
-            AFX_MANAGE_STATE(AfxGetStaticModuleState());
-            COptionsDlg dlg;
-            dlg.m_data = g_data.m_setting_data;
-            auto rtn = dlg.DoModal();
-            if (rtn == IDOK)
-            {
-                bool city_changed{ g_data.m_setting_data.m_city_index != dlg.m_data.m_city_index };
-                g_data.m_setting_data = dlg.m_data;
-                if (city_changed)
-                {
-                    CWeather::Instance().SendWetherInfoQequest();   //城市改变后，重新发送天气请求
-                }
-            }
-        }
-        //点击了“更新天气”
-        else if (id == ID_UPDATE_WEATHER)
-        {
-            SendWetherInfoQequest();
-        }
-    }
-}
-
 void CWeather::DisableUpdateWeatherCommand()
 {
     //只设置标志，按钮/菜单状态由UI线程刷新，不能在后台线程直接操作UI
@@ -530,6 +508,7 @@ void CWeather::OnPluginCommand(int command_index, void* hWnd, void* para)
         CWeatherHistoryDlg dlg(parent);
         dlg.DoModal();
     }
+        break;
     default:
         break;
     }

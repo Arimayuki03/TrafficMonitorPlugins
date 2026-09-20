@@ -30,15 +30,25 @@ namespace HardwareMonitor
     {
         if (m_pIns == nullptr)
         {
+            CHardwareMonitor* ins = nullptr;
             try
             {
-                m_pIns = new CHardwareMonitor();
+                //只有Init成功后才赋值给m_pIns，Init失败时下次调用可以重试，
+                //避免Init失败后插件带着未初始化的computer继续运行
+                ins = new CHardwareMonitor();
                 MonitorGlobal::Instance()->Init();
+                m_pIns = ins;
             }
             catch (System::Exception^ e)
             {
                 ShowErrorMessage(e);
             }
+            catch (...)
+            {
+                //原生异常(如std::bad_alloc)catch(System::Exception^)接不住，这里兜底避免异常逃出插件接口
+            }
+            if (m_pIns == nullptr)
+                delete ins;     //初始化失败时释放临时对象
         }
         return m_pIns;
     }
@@ -69,7 +79,11 @@ namespace HardwareMonitor
                 ItemInfo item_info;
                 item_info.identifyer = identifyer;
                 item_info.unit = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorTypeDefaultUnit(sensor->SensorType));
-                m_settings.items_info.push_back(item_info);
+                {
+                    //items_info会被监控线程在m_items_mutex锁内读取(GetItemInfoCopy)，写入也须持同一把锁
+                    std::lock_guard<std::mutex> lock(m_items_mutex);
+                    m_settings.items_info.push_back(item_info);
+                }
                 RebuildDisplayItems();
                 return true;
             }
@@ -94,9 +108,36 @@ namespace HardwareMonitor
     {
         if (index >= 0 && index < static_cast<int>(m_settings.items_info.size()))
         {
-            auto iter = m_settings.items_info.begin() + index;
-            m_settings.items_info.erase(iter);
+            {
+                //items_info会被监控线程在m_items_mutex锁内读取(GetItemInfoCopy)，写入也须持同一把锁
+                std::lock_guard<std::mutex> lock(m_items_mutex);
+                auto iter = m_settings.items_info.begin() + index;
+                m_settings.items_info.erase(iter);
+            }
             RebuildDisplayItems();
+            return true;
+        }
+        return false;
+    }
+
+    ItemInfo CHardwareMonitor::GetItemInfoCopy(const std::wstring& identifyer)
+    {
+        //在锁内完成查找与拷贝：items_info会被UI线程修改(push_back重分配/erase/swap)，
+        //调用方不能持有指向其元素的引用跨这段代码使用
+        std::lock_guard<std::mutex> lock(m_items_mutex);
+        ItemInfo* item_info = m_settings.FindItemInfo(identifyer);
+        if (item_info != nullptr)
+            return *item_info;
+        return ItemInfo();
+    }
+
+    bool CHardwareMonitor::SwapDisplayItems(int index1, int index2)
+    {
+        int size = static_cast<int>(m_settings.items_info.size());
+        if (index1 >= 0 && index1 < size && index2 >= 0 && index2 < size)
+        {
+            std::lock_guard<std::mutex> lock(m_items_mutex);
+            std::swap(m_settings.items_info[index1], m_settings.items_info[index2]);
             return true;
         }
         return false;
@@ -124,13 +165,17 @@ namespace HardwareMonitor
 
     void CHardwareMonitor::RebuildDisplayItems()
     {
-        m_items.clear();
+        //m_items会被宿主监控线程(DataRequired)遍历，而本函数在UI线程重建该向量，
+        //先在临时向量中构建完成，再持锁原子替换，避免遍历期间向量重分配产生野指针
+        std::vector<CHardwareMonitorItem*> new_items;
         for (const auto& item_info : m_settings.items_info)
         {
             CHardwareMonitorItem* item = EnsureDisplayItem(item_info);
             if (item != nullptr)
-                m_items.push_back(item);
+                new_items.push_back(item);
         }
+        std::lock_guard<std::mutex> lock(m_items_mutex);
+        m_items.swap(new_items);
     }
 
     std::wstring CHardwareMonitor::GetItemName(const std::wstring& identifier)
@@ -176,6 +221,11 @@ namespace HardwareMonitor
 
         //载入要监控的项目
         int item_count = ini.GetInt(L"config", L"item_count");
+        //钳制条目数量，防止手改ini构造超大值导致长时间无响应
+        if (item_count < 0)
+            item_count = 0;
+        else if (item_count > 1000)
+            item_count = 1000;
         //添加监控的项目
         for (int i = 0; i < item_count; i++)
         {
@@ -189,7 +239,26 @@ namespace HardwareMonitor
             item_info.show_unit = ini.GetBool(app_name.c_str(), L"show_unit", true);
             item_info.show_notify = ini.GetBool(app_name.c_str(), L"show_notify", false);
             item_info.notify_value = ini.GetDouble(app_name.c_str(), L"notify_value");
-            m_settings.items_info.push_back(item_info);
+            //对ini直读的数值做钳制：异常值会产生严重后果(value_width为负时std::wstring构造
+            //抛std::length_error且原生异常无法被catch(System::Exception^)接住；超出设置界面
+            //控件范围的值会在设置窗体赋值时抛异常)。钳制范围与设置界面的控件范围保持一致
+            if (item_info.decimal_places < 0)
+                item_info.decimal_places = 0;
+            else if (item_info.decimal_places > 3)
+                item_info.decimal_places = 3;       //与decimalPlaceCombo的选项范围(0~3)一致
+            if (item_info.value_width < 1)
+                item_info.value_width = 1;
+            else if (item_info.value_width > 20)
+                item_info.value_width = 20;         //与valueWidthEdit的范围(1~20)一致
+            if (!(item_info.notify_value >= 0))     //"!(v>=0)"同时把NaN归入此分支
+                item_info.notify_value = 0;
+            else if (item_info.notify_value > 1000)
+                item_info.notify_value = 1000;      //与notifyValueEdit的范围一致
+            {
+                //items_info会被监控线程在m_items_mutex锁内读取(GetItemInfoCopy)，写入也须持同一把锁
+                std::lock_guard<std::mutex> lock(m_items_mutex);
+                m_settings.items_info.push_back(item_info);
+            }
         }
         m_settings.hardware_info_auto_refresh = ini.GetBool(L"config", L"hardware_info_auto_refresh");
         m_settings.show_mouse_tooltip = ini.GetBool(L"config", L"show_mouse_tooltip", true);
@@ -207,7 +276,10 @@ namespace HardwareMonitor
                 ItemInfo item_info;
                 item_info.identifyer = identifyer;
                 item_info.unit = Common::StringToStdWstring(HardwareMonitorHelper::GetSensorTypeDefaultUnit(sensor->SensorType));
-                m_settings.items_info.push_back(item_info);
+                {
+                    std::lock_guard<std::mutex> lock(m_items_mutex);
+                    m_settings.items_info.push_back(item_info);
+                }
             }
         }
 
@@ -285,6 +357,8 @@ namespace HardwareMonitor
 
     IPluginItem* CHardwareMonitor::GetItem(int index)
     {
+        //m_items可能被UI线程重建，持锁读取(返回的指针由m_item_pool保证稳定)
+        std::lock_guard<std::mutex> lock(m_items_mutex);
         if (index >= 0 && index < static_cast<int>(m_items.size()))
         {
             return m_items[index];
@@ -299,20 +373,44 @@ namespace HardwareMonitor
             //重新获取数据
             MonitorGlobal::Instance()->computer->Accept(MonitorGlobal::Instance()->updateVisitor);
             //更新“硬件信息”树节点
-            if (MonitorGlobal::Instance()->monitor_form != nullptr && m_settings.hardware_info_auto_refresh)
-                MonitorGlobal::Instance()->monitor_form->UpdateData();
+            //UpdateData/UpdateItemsValue会遍历和重绘WinForms控件，本函数运行在宿主监控线程，
+            //不能直接访问控件，这里用BeginInvoke封送到UI线程执行(IsHandleCreated为Control的
+            //线程安全属性，可用于避免句柄未创建时BeginInvoke抛异常)
+            HardwareInfoForm^ monitor_form = MonitorGlobal::Instance()->monitor_form;
+            if (monitor_form != nullptr && m_settings.hardware_info_auto_refresh && monitor_form->IsHandleCreated)
+                monitor_form->BeginInvoke(gcnew System::Action(monitor_form, &HardwareInfoForm::UpdateData));
             //更新“选项设置”中的节点
-            if (MonitorGlobal::Instance()->setttings_form != nullptr)
-                MonitorGlobal::Instance()->setttings_form->UpdateItemsValue();
+            SettingsForm^ settings_form = MonitorGlobal::Instance()->setttings_form;
+            if (settings_form != nullptr && settings_form->IsHandleCreated)
+                settings_form->BeginInvoke(gcnew System::Action(settings_form, &SettingsForm::UpdateItemsValue));
             //更新所有显示项目
-            for (CHardwareMonitorItem* item : m_items)
+            //m_items可能被UI线程重建，先持锁拷贝一份快照再释放锁；
+            //不能持锁调用UpdateValue，其内部会访问托管对象与sensorMap，持锁易引发锁序问题
+            std::vector<CHardwareMonitorItem*> items_snapshot;
             {
-                item->UpdateValue();
+                std::lock_guard<std::mutex> lock(m_items_mutex);
+                items_snapshot = m_items;
+            }
+            for (CHardwareMonitorItem* item : items_snapshot)
+            {
+                try
+                {
+                    item->UpdateValue();
+                }
+                catch (System::Exception^)
+                {
+                    //逐项隔离异常，保证单个条目更新失败不影响其他条目
+                }
             }
         }
         catch (System::Exception^)
         {
             //ShowErrorMessage(e);
+        }
+        catch (...)
+        {
+            //原生异常(如std::bad_alloc)catch(System::Exception^)接不住，
+            //这里兜底保证异常不会逃出监控线程导致宿主terminate
         }
     }
 
@@ -343,18 +441,24 @@ namespace HardwareMonitor
     {
         if (m_settings.show_mouse_tooltip)
         {
-            static std::wstring tooltip_info;
-            tooltip_info.clear();
-            for (size_t i{}; i < m_items.size(); i++)
+            //缓冲区用成员而非函数级static，避免共享缓冲被后续调用改写
+            m_tooltip_info.clear();
+            //m_items可能被UI线程重建，先持锁拷贝一份快照再遍历
+            std::vector<CHardwareMonitorItem*> items_snapshot;
             {
-                CHardwareMonitorItem* item = m_items[i];
-                if (i > 0)
-                    tooltip_info += L"\r\n";
-                tooltip_info += item->GetItemName();
-                tooltip_info += L": ";
-                tooltip_info += item->GetItemValueText();
+                std::lock_guard<std::mutex> lock(m_items_mutex);
+                items_snapshot = m_items;
             }
-            return tooltip_info.c_str();
+            for (size_t i{}; i < items_snapshot.size(); i++)
+            {
+                CHardwareMonitorItem* item = items_snapshot[i];
+                if (i > 0)
+                    m_tooltip_info += L"\r\n";
+                m_tooltip_info += item->GetItemName();
+                m_tooltip_info += L": ";
+                m_tooltip_info += item->GetItemValueText();
+            }
+            return m_tooltip_info.c_str();
         }
         else
         {
@@ -364,25 +468,30 @@ namespace HardwareMonitor
 
     ITMPlugin::OptionReturn CHardwareMonitor::ShowOptionsDialog(void* hParent)
     {
+        SettingsForm^ form;
         try
         {
-            SettingsForm^ form = gcnew SettingsForm();
+            form = gcnew SettingsForm();
             MonitorGlobal::Instance()->setttings_form = form;
             //设置窗体中的修改都是即时生效的(没有单独的“确定”按钮)，
             //因此无论通过何种方式关闭窗体，都应通知主程序选项可能已更改
             form->ShowDialog();
-            MonitorGlobal::Instance()->setttings_form = nullptr;
             SaveConfig();
             return ITMPlugin::OR_OPTION_CHANGED;
         }
         catch (System::Exception^ e)
         {
-            MonitorGlobal::Instance()->setttings_form = nullptr;
             ShowErrorMessage(e);
+        }
+        catch (...)
+        {
+            //原生异常catch(System::Exception^)接不住，这里兜底避免异常逃出插件接口
         }
         finally
         {
             MonitorGlobal::Instance()->setttings_form = nullptr;
+            //ShowDialog关闭的窗体不会自动Dispose，这里及时释放其句柄资源(delete在C++/CLI中即调用Dispose)
+            delete form;
         }
         return ITMPlugin::OR_OPTION_UNCHANGED;
     }
@@ -400,6 +509,10 @@ namespace HardwareMonitor
             catch (System::Exception^ e)
             {
                 ShowErrorMessage(e);
+            }
+            catch (...)
+            {
+                //LoadConfig中的原生异常(如std::bad_alloc)catch(System::Exception^)接不住，这里兜底
             }
             break;
         case ITMPlugin::EI_DRAW_TASKBAR_WND:
@@ -503,7 +616,9 @@ namespace HardwareMonitor
         if (!iconsMap->TryGetValue(name, icon))
         {
             icon = LoadIcon(name, CHardwareMonitor::GetInstance()->DPI(16));
-            iconsMap->Add(name, icon);
+            //只缓存非空结果，载入失败时不缓存，下次调用可以重试
+            if (icon != nullptr)
+                iconsMap->Add(name, icon);
         }
         return icon;
     }
@@ -515,21 +630,26 @@ namespace HardwareMonitor
 
     void MonitorGlobal::ShowHardwareInfoDialog()
     {
+        HardwareInfoForm^ form;
         try
         {
-            HardwareInfoForm^ form = gcnew HardwareInfoForm();
+            form = gcnew HardwareInfoForm();
             monitor_form = form;
             form->ShowDialog();
-            monitor_form = nullptr;
         }
         catch (System::Exception^ e)
         {
-            monitor_form = nullptr;
             CHardwareMonitor::ShowErrorMessage(e);
+        }
+        catch (...)
+        {
+            //原生异常catch(System::Exception^)接不住，这里兜底避免异常逃出插件接口
         }
         finally
         {
             monitor_form = nullptr;
+            //ShowDialog关闭的窗体不会自动Dispose，这里及时释放其句柄资源
+            delete form;
         }
     }
 

@@ -39,17 +39,32 @@ static void WritePrivateProfileInt(const wchar_t* app_name, const wchar_t* key_n
 void CDataManager::LoadConfig(const std::wstring& config_dir)
 {
     m_config_path = config_dir + L"KeyboardIndicator.ini";
-    m_setting_data.show_caps_lock = GetPrivateProfileIntW(L"config", L"show_caps_lock", 1, m_config_path.c_str());
-    m_setting_data.show_num_lock = GetPrivateProfileIntW(L"config", L"show_num_lock", 1, m_config_path.c_str());
-    m_setting_data.show_scroll_lock = GetPrivateProfileIntW(L"config", L"show_scroll_lock", 1, m_config_path.c_str());
-    m_setting_data.draw_round_rect = GetPrivateProfileIntW(L"config", L"draw_round_rect", 0, m_config_path.c_str());
-    m_setting_data.show_pressed_key = GetPrivateProfileIntW(L"config", L"show_pressed_key", 1, m_config_path.c_str());
-    m_setting_data.pressed_key_show_time = GetPrivateProfileIntW(L"config", L"pressed_key_show_time", 1000, m_config_path.c_str());
-    m_setting_data.pressed_key_reserved_width = GetPrivateProfileIntW(L"config", L"pressed_key_reserved_width", 90, m_config_path.c_str());
+    m_setting_data.show_caps_lock = (GetPrivateProfileIntW(L"config", L"show_caps_lock", 1, m_config_path.c_str()) != 0);
+    m_setting_data.show_num_lock = (GetPrivateProfileIntW(L"config", L"show_num_lock", 1, m_config_path.c_str()) != 0);
+    m_setting_data.show_scroll_lock = (GetPrivateProfileIntW(L"config", L"show_scroll_lock", 1, m_config_path.c_str()) != 0);
+    m_setting_data.draw_round_rect = (GetPrivateProfileIntW(L"config", L"draw_round_rect", 0, m_config_path.c_str()) != 0);
+    m_setting_data.show_pressed_key = (GetPrivateProfileIntW(L"config", L"show_pressed_key", 1, m_config_path.c_str()) != 0);
+    //按键显示时长限制在0~10000毫秒，与设置界面允许的范围一致
+    int show_time = GetPrivateProfileIntW(L"config", L"pressed_key_show_time", 1000, m_config_path.c_str());
+    if (show_time < 0)
+        show_time = 0;
+    if (show_time > 10000)
+        show_time = 10000;
+    m_setting_data.pressed_key_show_time = show_time;
+    //按键区预留宽度限制在0~300像素，与设置界面允许的范围一致，避免畸形配置参与宽度计算时溢出
+    int reserved_width = GetPrivateProfileIntW(L"config", L"pressed_key_reserved_width", 90, m_config_path.c_str());
+    if (reserved_width < 0)
+        reserved_width = 0;
+    if (reserved_width > 300)
+        reserved_width = 300;
+    m_setting_data.pressed_key_reserved_width = reserved_width;
 }
 
 void CDataManager::SaveConfig() const
 {
+    //未获取到配置目录时跳过写入，避免把配置错误地写入系统目录的win.ini
+    if (m_config_path.empty())
+        return;
     WritePrivateProfileInt(L"config", L"show_caps_lock", m_setting_data.show_caps_lock, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_num_lock", m_setting_data.show_num_lock, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_scroll_lock", m_setting_data.show_scroll_lock, m_config_path.c_str());
@@ -74,26 +89,9 @@ const CString& CDataManager::StringRes(UINT id)
     }
 }
 
-void CDataManager::DPIFromWindow(CWnd* pWnd)
-{
-    CWindowDC dc(pWnd);
-    HDC hDC = dc.GetSafeHdc();
-    m_dpi = GetDeviceCaps(hDC, LOGPIXELSY);
-}
-
 int CDataManager::DPI(int pixel)
 {
     return m_dpi * pixel / 96;
-}
-
-float CDataManager::DPIF(float pixel)
-{
-    return m_dpi * pixel / 96;
-}
-
-int CDataManager::RDPI(int pixel)
-{
-    return pixel * 96 / m_dpi;
 }
 
 HICON CDataManager::GetIcon(UINT id)

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <string>
 #include <map>
+#include <mutex>
 #include <vector>
 #include "resource.h"
 #include "HistoryWeatherMgr.h"
@@ -23,9 +24,15 @@ private:
 public:
     static CDataManager& Instance();
 
+    //保护设置类数据(m_setting_data、m_auto_located、m_auto_locate_succeed、m_update_time)的互斥量。
+    //这些数据会被后台线程(自动定位/解析)与UI线程并发读写。锁内可能再次加锁，使用recursive_mutex。
+    //加锁顺序：CWeather::m_data_mutex -> m_settings_mutex -> m_string_table_mutex/m_history_mutex，禁止反向嵌套
+    mutable std::recursive_mutex m_settings_mutex;
+
     void InitCityList();        //初始化城市列表
     void LoadConfig(const std::wstring& config_dir);
     void SaveConfig() const;
+    SettingData GetSettingData() const;    //在锁内返回设置数据的副本
     const CString& StringRes(UINT id);      //根据资源id获取一个字符串资源
     void DPIFromWindow(CWnd* pWnd);
     int DPI(int pixel);
@@ -55,6 +62,7 @@ public:
 private:
     static CDataManager m_instance;
     std::wstring m_config_path;
+    mutable std::recursive_mutex m_string_table_mutex;      //保护m_string_table(后台解析线程与UI线程都会调用StringRes)
     std::map<UINT, CString> m_string_table;
     std::map<UINT, HICON> m_icons;      //保存16x16大小的图标资源
     std::map<UINT, HICON> m_icons_big;  //保存24x24大小的图标资源

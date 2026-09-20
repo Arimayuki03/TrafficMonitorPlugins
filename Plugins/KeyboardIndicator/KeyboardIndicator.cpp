@@ -29,13 +29,20 @@ IPluginItem* CKeyboardIndicator::GetItem(int index)
 
 const wchar_t* CKeyboardIndicator::GetTooltipInfo()
 {
-    return m_tooltip_info.c_str();
+    //m_tooltip_info由监控线程写入、UI线程读取，锁内拷贝到缓冲后返回，避免读到正在被重写的字符串
+    std::lock_guard<std::mutex> lock(m_tooltip_mutex);
+    m_tooltip_info_buffer = m_tooltip_info;
+    return m_tooltip_info_buffer.c_str();
 }
 
 void CKeyboardIndicator::DataRequired()
 {
-    //确保键盘钩子线程已启动
-    CKeyboardHook::Instance().Start();
+    //仅在“实时显示按下的按键”功能开启时保持键盘钩子运行，关闭时卸载钩子线程
+    //(无法感知插件被宿主禁用的时机，此时钩子仍会随插件数据刷新保持运行)
+    if (g_data.m_setting_data.show_pressed_key)
+        CKeyboardHook::Instance().Start();
+    else
+        CKeyboardHook::Instance().Stop();
     //更新鼠标提示文本：锁定键状态和最近按下的按键
     std::wstring tooltip;
     tooltip += L"Caps Lock: ";
@@ -50,6 +57,8 @@ void CKeyboardIndicator::DataRequired()
         tooltip += L"\r\nLast key: ";
         tooltip += last_key;
     }
+    //先组装到局部串，锁内一次性更新成员，避免UI线程读到不一致或已释放的内容
+    std::lock_guard<std::mutex> lock(m_tooltip_mutex);
     m_tooltip_info = tooltip;
 }
 

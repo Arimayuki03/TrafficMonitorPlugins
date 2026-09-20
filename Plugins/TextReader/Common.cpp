@@ -107,6 +107,13 @@ std::wstring CCommon::ConvertToUnicode(const std::string& content)
 void CCommon::StringSplit(const std::wstring& str, const std::wstring& div_str, std::vector<std::wstring>& results, bool skip_empty)
 {
     results.clear();
+    //分隔符为空时find恒返回0会死循环，直接按整串返回
+    if (div_str.empty())
+    {
+        if (!str.empty() || !skip_empty)
+            results.push_back(str);
+        return;
+    }
     size_t split_index = 0 - div_str.size();
     size_t last_split_index = 0 - div_str.size();
     while (true)

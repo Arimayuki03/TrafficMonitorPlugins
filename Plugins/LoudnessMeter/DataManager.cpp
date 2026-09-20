@@ -44,6 +44,8 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
 
 void CDataManager::SaveConfig() const
 {
+    if (m_config_path.empty())
+        return;
     WritePrivateProfileInt(L"config", L"show_db", m_setting_data.show_db, m_config_path.c_str());
 }
 

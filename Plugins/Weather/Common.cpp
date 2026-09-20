@@ -66,8 +66,6 @@ bool CCommon::GetURL(const std::wstring& url, std::string& result, const std::ws
             succeed = true;
         }
         pfile->Close();
-        delete pfile;
-        pfile = nullptr;
         pSession->Close();
     }
     catch (CInternetException* e)
@@ -85,11 +83,26 @@ bool CCommon::GetURL(const std::wstring& url, std::string& result, const std::ws
         {
             e2->Delete();
         }
-        delete pfile;       //析构函数会释放句柄，不会抛出
-        pfile = nullptr;
         e->Delete();        //没有这句会造成内存泄露
         SAFE_DELETE(pSession);
     }
+    catch (...)
+    {
+        //CInternetException之外的异常(如内存不足)同样不能逃出本函数
+        succeed = false;
+        try
+        {
+            if (pfile != nullptr)
+                pfile->Close();
+        }
+        catch (...)
+        {
+        }
+        SAFE_DELETE(pSession);
+    }
+    //delete与pfile置空放在所有路径的公共收尾处，避免异常路径下指针状态不一致
+    delete pfile;
+    pfile = nullptr;
     SAFE_DELETE(pSession);
     return succeed;
 }

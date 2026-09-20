@@ -31,6 +31,7 @@ protected:
 
 private:
     PluginInfo LoadPlugin(const std::wstring& plugin_file_path, const std::wstring& config_dir);
+    static void EnumPluginItems(PluginInfo& plugin_info);       //获取插件的显示项目
     void EnableControl();
     int CalculatePreviewTopPos();       //计算预览图顶部位置
     CSize CalculatePreviewSize();       //计算预览区域的大小

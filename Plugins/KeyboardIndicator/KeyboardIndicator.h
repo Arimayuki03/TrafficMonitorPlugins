@@ -2,6 +2,7 @@
 #include "PluginInterface.h"
 #include "KeyboardIndicatorItem.h"
 #include <string>
+#include <mutex>
 
 class CKeyboardIndicator : public ITMPlugin
 {
@@ -28,6 +29,8 @@ private:
     static CKeyboardIndicator m_instance;
     CKeyboardIndicatorItem m_item;
     std::wstring m_tooltip_info;
+    std::wstring m_tooltip_info_buffer;     //GetTooltipInfo返回的副本缓冲
+    mutable std::mutex m_tooltip_mutex;     //保护m_tooltip_info：监控线程写、UI线程读
 };
 
 #ifdef __cplusplus

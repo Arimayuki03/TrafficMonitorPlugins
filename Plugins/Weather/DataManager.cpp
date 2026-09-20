@@ -88,6 +88,7 @@ void CDataManager::InitCityList()
 
 void CDataManager::LoadConfig(const std::wstring& config_dir)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
     m_config_dir = config_dir;
     m_config_path = config_dir + L"Weather.ini";
     utilities::CIniHelper ini(m_config_path);
@@ -103,6 +104,7 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
 
 void CDataManager::SaveConfig() const
 {
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
     utilities::CIniHelper ini(m_config_path);
     ini.WriteInt(L"config", L"city", m_setting_data.m_city_index);
     ini.WriteInt(L"config", L"weather_selected", m_setting_data.m_weather_selected);
@@ -115,8 +117,18 @@ void CDataManager::SaveConfig() const
     m_history_weather_mgr.Save();
 }
 
+SettingData CDataManager::GetSettingData() const
+{
+    //在锁内返回副本，避免后台线程(自动定位)更新设置时调用方读到不一致的内容
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
+    return m_setting_data;
+}
+
 const CString& CDataManager::StringRes(UINT id)
 {
+    //m_string_table会被后台解析线程(首次插入)与UI线程并发访问，需要加锁保护。
+    //返回的是map结点内CString的引用，std::map插入不会使已有元素的引用失效，且元素初始化在锁内完成，锁外读取安全
+    std::lock_guard<std::recursive_mutex> lock(m_string_table_mutex);
     auto iter = m_string_table.find(id);
     if (iter != m_string_table.end())
     {
@@ -179,6 +191,8 @@ HICON CDataManager::GetIcon(UINT id, bool big)
 
 CityCodeItem CDataManager::CurCity() const
 {
+    //m_setting_data会被后台线程(自动定位)与UI线程并发读写，在锁内读取城市序号并返回副本
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
     if (m_setting_data.m_city_index >= 0 && m_setting_data.m_city_index < static_cast<int>(m_city_list.size()))
         return m_city_list[m_setting_data.m_city_index];
     else
@@ -187,7 +201,12 @@ CityCodeItem CDataManager::CurCity() const
 
 void CDataManager::ResetText()
 {
-    m_weather_info[m_setting_data.m_weather_selected] = WeatherInfo();
+    //清空全部天气槽位的文本，避免解析中途失败时残留上一个城市的数据(原先只清空当前选中的槽位)。
+    //调用方(解析线程)持有CWeather::m_data_mutex保护m_weather_info，此处加锁保护m_setting_data的读取
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
+    for (int i = WEATHER_CURRENT; i <= WEATHER_DAY2; i++)
+        m_weather_info[static_cast<WeahterSelected>(i)] = WeatherInfo();
+    m_weather_info[WEATHER_CURRENT].is_cur_weather = true;
 }
 
 HICON CDataManager::GetWeatherIcon(const std::wstring& weather_type, bool big)
@@ -234,11 +253,16 @@ CHistoryWeatherMgr& CDataManager::HistoryWeatherMgr()
 
 WeatherInfo& CDataManager::GetWeather()
 {
+    //m_setting_data.m_weather_selected会被UI线程与后台线程并发读写，在锁内读取后再返回引用
+    //(返回的m_weather_info元素本身由调用方通过CWeather::m_data_mutex保护，引用指向map结点不会失效)
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
     return m_weather_info[m_setting_data.m_weather_selected];
 }
 
 CString CDataManager::GetUpdateTimeAsString()
 {
+    //m_update_time由后台解析线程写、UI线程读，在锁内读取
+    std::lock_guard<std::recursive_mutex> lock(m_settings_mutex);
     // 获取当前日期和更新日期
     CTime now_date = CCommon::GetDateOnly(CTime::GetCurrentTime());
     CTime update_date = CCommon::GetDateOnly(m_update_time);

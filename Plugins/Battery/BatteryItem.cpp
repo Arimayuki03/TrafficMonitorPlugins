@@ -5,6 +5,10 @@
 #include "GdiPlusTool.h"
 
 static double battery_percent = 0.0;
+//最近一次DrawItem的时间戳（毫秒），用于在监控项不再显示时自动停用动画定时器
+static ULONGLONG last_draw_tick = 0;
+
+UINT_PTR CBatteryItem::m_anim_timer_id = 0;
 
 CBatteryItem::CBatteryItem()
 {
@@ -14,18 +18,39 @@ CBatteryItem::~CBatteryItem()
 {
     if (m_anim_timer_id != 0)
         ::KillTimer(NULL, m_anim_timer_id);
+    m_anim_timer_id = 0;
 }
 
 void CBatteryItem::EnsureAnimationTimer()
 {
     //设置一个定时器，让battery_percent的值每200毫秒加4，如果超100，则变为0
     if (m_anim_timer_id == 0)
+    {
         m_anim_timer_id = SetTimer(NULL, 0, 200, [](HWND, UINT, UINT_PTR, DWORD)
             {
                 battery_percent += 4;
                 if (battery_percent > 100)
                     battery_percent = 0;
+                //超过5秒没有绘制（监控项被移除或插件被禁用）时自动停用定时器，避免其空转
+                if (m_anim_timer_id != 0 && GetTickCount64() - last_draw_tick > 5000)
+                {
+                    ::KillTimer(NULL, m_anim_timer_id);
+                    m_anim_timer_id = 0;
+                    battery_percent = 0.0;
+                }
             });
+    }
+}
+
+void CBatteryItem::StopAnimationTimer()
+{
+    //关闭充电动画选项时停用定时器，避免其每200毫秒空转
+    if (m_anim_timer_id != 0)
+    {
+        ::KillTimer(NULL, m_anim_timer_id);
+        m_anim_timer_id = 0;
+        battery_percent = 0.0;
+    }
 }
 
 const wchar_t* CBatteryItem::GetItemName() const
@@ -45,9 +70,8 @@ const wchar_t* CBatteryItem::GetItemLableText() const
 
 const wchar_t* CBatteryItem::GetItemValueText() const
 {
-    static std::wstring battery_str;
-    battery_str = g_data.GetBatteryString();
-    return battery_str.c_str();
+    m_item_value_cache = g_data.GetBatteryString();
+    return m_item_value_cache.c_str();
 }
 
 const wchar_t* CBatteryItem::GetItemValueSampleText() const
@@ -92,13 +116,18 @@ int CBatteryItem::GetItemWidthEx(void * hDC) const
 
 void CBatteryItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mode)
 {
-    //需要显示充电动画时启动定时器
+    last_draw_tick = GetTickCount64();
+    //根据充电动画选项启停定时器
     if (g_data.m_setting_data.show_charging_animation)
         EnsureAnimationTimer();
+    else
+        StopAnimationTimer();
     //绘图句柄
     CDC* pDC = CDC::FromHandle((HDC)hDC);
     //矩形区域
     CRect rect(CPoint(x, y), CSize(w, h));
+    //拷贝系统电量副本，避免绘制期间与监控线程写入撕裂
+    SYSTEM_POWER_STATUS power_status = g_data.GetSystemPowerStatusCopy();
     //绘制电池图标
     HICON hIcon;
     if (g_data.IsAcOnline())
@@ -111,17 +140,17 @@ void CBatteryItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mod
     icon_point.y = rect.top + (rect.Height() - icon_size) / 2;
     ::DrawIconEx(pDC->GetSafeHdc(), icon_point.x, icon_point.y, hIcon, icon_size, icon_size, 0, NULL, DI_NORMAL);
     //填充电量指示
-    if (g_data.m_sysPowerStatus.BatteryFlag != 128 && g_data.m_sysPowerStatus.BatteryLifePercent > 0 && g_data.m_sysPowerStatus.BatteryLifePercent <= 100)
+    if (power_status.BatteryFlag != 128 && power_status.BatteryLifePercent > 0 && power_status.BatteryLifePercent <= 100)
     {
         //计算电量指示矩形区域
         Gdiplus::RectF rc_indicater;
         rc_indicater.X = icon_point.x + g_data.DPIF(1);
         rc_indicater.Y = icon_point.y + g_data.DPIF(6);
-        double percent = g_data.m_sysPowerStatus.BatteryLifePercent;
+        double percent = power_status.BatteryLifePercent;
         //显示充电动画
-        if (g_data.m_setting_data.show_charging_animation && g_data.IsAcOnline() && g_data.m_sysPowerStatus.BatteryLifePercent < 100)
+        if (g_data.m_setting_data.show_charging_animation && g_data.IsAcOnline() && power_status.BatteryLifePercent < 100)
         {
-            percent = g_data.m_sysPowerStatus.BatteryLifePercent + (battery_percent / 100 * (100 - g_data.m_sysPowerStatus.BatteryLifePercent));
+            percent = power_status.BatteryLifePercent + (battery_percent / 100 * (100 - power_status.BatteryLifePercent));
         }
         float indicater_width = static_cast<float>(g_data.DPIF(11.7f) * percent / 100);
         rc_indicater.Width = indicater_width;
@@ -130,15 +159,18 @@ void CBatteryItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mod
         if (g_data.IsAcOnline())
         {
             HICON hFill;
-            if (g_data.m_sysPowerStatus.BatteryLifePercent < 20)
+            if (power_status.BatteryLifePercent < 20)
                 hFill = g_data.GetIcon(IDI_FILL_CRITICAL);
-            else if (g_data.m_sysPowerStatus.BatteryLifePercent < 60)
+            else if (power_status.BatteryLifePercent < 60)
                 hFill = g_data.GetIcon(IDI_FILL_LOW);
             else
                 hFill = g_data.GetIcon(IDI_FILL_HIGH);
             //设置剪辑区域
-            if (g_data.m_sysPowerStatus.BatteryLifePercent < 100)
+            int dc_saved_id = 0;
+            if (power_status.BatteryLifePercent < 100)
             {
+                //先保存DC状态（含宿主原有剪裁区），设置新剪裁区
+                dc_saved_id = ::SaveDC(pDC->GetSafeHdc());
                 CRgn rgn;
                 rgn.CreateRectRgn(static_cast<int>(rc_indicater.GetLeft()), static_cast<int>(rc_indicater.GetTop())
                     , static_cast<int>(rc_indicater.GetRight()), static_cast<int>(rc_indicater.GetBottom()));
@@ -146,10 +178,10 @@ void CBatteryItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_mod
             }
             //绘制电量指示
             ::DrawIconEx(pDC->GetSafeHdc(), icon_point.x, icon_point.y, hFill, icon_size, icon_size, 0, NULL, DI_NORMAL);
-            //恢复剪辑区域
-            if (g_data.m_sysPowerStatus.BatteryLifePercent < 100)
+            //用RestoreDC恢复含原有剪裁区在内的DC状态，而不是SelectClipRgn(NULL)清空宿主原有剪裁区
+            if (dc_saved_id != 0)
             {
-                pDC->SelectClipRgn(NULL);
+                ::RestoreDC(pDC->GetSafeHdc(), -dc_saved_id);
             }
         }
         //非充电状态下电量指示使用原来的方式（矩形填充）

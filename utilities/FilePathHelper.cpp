@@ -15,7 +15,10 @@ namespace utilities
     {
         size_t index;
         index = m_file_path.rfind('.');
-        if (index == std::wstring::npos || index == m_file_path.size() - 1)
+        //点号必须位于最后一段路径中，否则不能视为扩展名（如“C:/my.dir/file”应返回空而不是“.dir/file”）
+        size_t index1 = m_file_path.find_last_of(L"\\/");
+        if (index == std::wstring::npos || index == m_file_path.size() - 1
+            || (index1 != std::wstring::npos && index < index1))
             return std::wstring();
         std::wstring file_extension{ m_file_path.substr(width_dot ? index : index + 1) };
         return file_extension;

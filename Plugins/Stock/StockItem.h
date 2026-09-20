@@ -17,7 +17,6 @@ public:
 
     int index;
     std::wstring stock_id;
-    bool enable;
 
 private:
     //GetItemName/GetItemId为const成员，返回值缓存在mutable成员中，

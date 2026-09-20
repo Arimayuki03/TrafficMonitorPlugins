@@ -16,6 +16,8 @@ namespace utilities
         if (length_signed <= 0)
             return false;   //无法获取长度(目录/管道等特殊文件tellg返回-1)或空文件
         size_t length = static_cast<size_t>(length_signed);
+        if (length > 50 * 1024 * 1024)  //大小上限50MB，防止因误描述的宏大文件空耗分配
+            return false;
         file.seekg(0, file.beg);
 
         char* buff = new char[length];
@@ -184,6 +186,18 @@ namespace utilities
     static void _StringSplit(const T& str, const T& div_str, std::vector<T>& results, bool skip_empty = true, bool trim = true)
     {
         results.clear();
+        if (div_str.empty())
+        {
+            //分隔符为空时直接返回整串，避免 find/循环死循环
+            if (!str.empty() || !skip_empty)
+            {
+                T split_str = str;
+                if (trim)
+                    _StringNormalize(split_str);
+                results.push_back(split_str);
+            }
+            return;
+        }
         size_t split_index = 0 - div_str.size();
         size_t last_split_index = 0 - div_str.size();
         while (true)

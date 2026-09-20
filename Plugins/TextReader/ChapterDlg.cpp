@@ -28,21 +28,22 @@ int CChapterDlg::GetSelectedPosition() const
 
 void CChapterDlg::ShowData()
 {
-    //计算当前进度的章节
-    int cur_chapter_position = g_data.GetChapter().GetChapterIndexByPos(g_data.m_setting_data.current_position);
+    //计算当前进度的章节(通过加锁的快照接口读取，避免与后台线程换入文本/章节表竞争)
+    int cur_chapter_position = g_data.GetChapterIndexByPos(g_data.m_setting_data.current_position);
     if (cur_chapter_position >= 0)
     {
-        std::wstring chapter_title = g_data.GetChapter().GetChapterTitle(cur_chapter_position);
+        std::wstring chapter_title = g_data.GetChapterTitle(cur_chapter_position);
         SetDlgItemText(IDC_CHRRENT_CHAPTER_STATIC, chapter_title.c_str());
 
     }
 
     //显示列表内容
+    const std::map<int, std::wstring> chapter_data = g_data.GetChapterDataSnapshot();
     m_chapter_index.clear();
     m_lst_box.ResetContent();
     int index{};
     int selected_index{};
-    for (const auto& item : g_data.GetChapter().GetChapterData())
+    for (const auto& item : chapter_data)
     {
         m_chapter_index.push_back(item.first);
         m_lst_box.AddString(item.second.c_str());

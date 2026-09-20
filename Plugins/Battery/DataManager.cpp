@@ -78,6 +78,9 @@ void CDataManager::SaveConfig() const
 
 const CString& CDataManager::StringRes(UINT id)
 {
+    //m_string_table会被监控线程DataRequired(首次插入)与UI线程并发访问，需要加锁保护。
+    //返回的是map结点内CString的引用，std::map插入不会使已有元素的引用失效，且元素初始化在锁内完成，锁外读取安全
+    std::lock_guard<std::recursive_mutex> lock(m_string_table_mutex);
     auto iter = m_string_table.find(id);
     if (iter != m_string_table.end())
     {
@@ -132,18 +135,33 @@ HICON CDataManager::GetIcon(UINT id)
 }
 
 
-bool CDataManager::IsAcOnline() const
+bool CDataManager::UpdateSystemPowerStatus()
 {
-    return m_sysPowerStatus.ACLineStatus == 1;
+    SYSTEM_POWER_STATUS status;
+    if (!::GetSystemPowerStatus(&status))
+        return false;
+    //锁内整体写入，避免UI线程读副本时撕裂
+    std::lock_guard<std::mutex> lock(m_sysPowerStatus_mutex);
+    m_sysPowerStatus = status;
+    return true;
 }
 
-bool CDataManager::IsCharging() const
+SYSTEM_POWER_STATUS CDataManager::GetSystemPowerStatusCopy() const
 {
-    return m_sysPowerStatus.BatteryFlag == 8;
+    //锁内整体拷出副本，供UI线程逐字段使用，避免与监控线程的整体写入撕裂
+    std::lock_guard<std::mutex> lock(m_sysPowerStatus_mutex);
+    return m_sysPowerStatus;
+}
+
+bool CDataManager::IsAcOnline() const
+{
+    std::lock_guard<std::mutex> lock(m_sysPowerStatus_mutex);
+    return m_sysPowerStatus.ACLineStatus == 1;
 }
 
 std::wstring CDataManager::GetBatteryString() const
 {
+    std::lock_guard<std::mutex> lock(m_sysPowerStatus_mutex);
     //BatteryFlag==128表示无系统电池；BatteryLifePercent==255表示电量未知
     if (m_sysPowerStatus.BatteryFlag == 128 || m_sysPowerStatus.BatteryLifePercent == 255)
     {
@@ -164,6 +182,7 @@ std::wstring CDataManager::GetBatteryString() const
 
 COLORREF CDataManager::GetBatteryColor() const
 {
+    std::lock_guard<std::mutex> lock(m_sysPowerStatus_mutex);
     if (m_sysPowerStatus.BatteryLifePercent < 20)
         return BATTERY_COLOR_CRITICAL;
     else if (m_sysPowerStatus.BatteryLifePercent < 60)

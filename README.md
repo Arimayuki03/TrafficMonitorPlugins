@@ -2,7 +2,7 @@
 
 这是[TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor)官方插件仓库（[zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins)）的一个 fork。
 
-> **关于本仓库**：本仓库在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了一轮系统性代码审查与修复（共 89 项，详见[修复文档](修复文档.md)），并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
+> **关于本仓库**：本仓库在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了系统性代码审查与修复（第一轮 89 项 + 第二/三轮复审残留 15 项 + 第四轮交叉验证最终整改 19 项及约 70 项 P2，详见[修复文档](修复文档.md)），并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
 
 ## 插件下载
 
@@ -33,6 +33,17 @@
 * **兼容性修复**：`GetURL` 网络读取不再依赖系统区域设置，正确处理 BOM 与 UTF-16 编码。
 
 所有修复均已通过编译验证：本机 VS2022 Release|x64 编译 11 个项目零错误，并通过 GitHub Actions CI（windows-2022）完成全部插件（含 C++/CLI 的 HardwareMonitor）的编译验证。
+
+### 第四轮：三份独立复审交叉验证后的最终整改（2026-09-20）
+
+在第二/三轮修复的基础上，三份独立复审报告经逐条交叉验证与真实编译/运行实测后，按最终确认清单完成整改（FIX-090~108 及约 70 项 P2）：
+
+* **崩溃/数据损坏（P0）**：base64 误判普通文本与越界读、IniHelper 单引号值堆破坏、Stock 主窗口点击崩溃、HardwareMonitor 老宿主通知崩溃与 m_items 跨线程重建竞态。
+* **死锁与数据竞争（P1）**：Stock 残留的持锁 SendMessage 死锁；HardwareMonitor items_info/sensorMap/控件访问全面并发整改（快照交换 + BeginInvoke 封送 + 逐项异常隔离）；Weather 锁缺口与“自动定位被旧副本回滚”；Battery/IpAddress/DateTime/KeyboardIndicator/TextReader 的 tooltip/数值文本跨线程写读全部改为“锁内拷贝副本”或值快照。
+* **功能正确性**：HardwareMonitor LoadConfig 数值钳制（消除 value_width 负值 terminate 与 “F-1” 显示链）、树上/下移边界、深层传感器可见；TextReader 章节定位 off-by-one、请求归属校验；Stock RDPI 方向、分时失败语义；IpAddress 样本文本恒定宽度（DHCP 换长 IP 不再截断）。
+* **卫生**：错别字、死代码、GBK 资源文件字节级精确修改、.gitignore 补 RCa* 与 *.res、OutDir 统一。
+
+验证：本机 Release|x64 全解决方案 Rebuild **12/12 项目零错误**（含 C++/CLI 的 HardwareMonitor，本地经 FrameworkPathOverride 补齐 .NET 引用完成整链编译；正式产物以 CI 为准），编译警告与整改前基线完全一致（零新增）；base64/IniHelper 等关键模块以真实源码编译执行 58/58 行为测试用例。
 
 ## 插件使用说明
 

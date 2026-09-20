@@ -55,21 +55,3 @@ void CAdapterCommon::GetAdapterInfo(std::vector<NetWorkConection>& adapters)
 		adapters.push_back(connection);
 	}
 }
-
-void CAdapterCommon::RefreshIpAddress(std::vector<NetWorkConection>& adapters)
-{
-    std::vector<NetWorkConection> adapters_tmp;
-	GetAdapterInfo(adapters_tmp);
-	for (const auto& adapter_tmp : adapters_tmp)
-	{
-		for (auto& adapter : adapters)
-		{
-			if (adapter_tmp.description == adapter.description)
-			{
-				adapter.ip_address = adapter_tmp.ip_address;
-				adapter.subnet_mask = adapter_tmp.subnet_mask;
-				adapter.default_gateway = adapter_tmp.default_gateway;
-			}
-		}
-	}
-}

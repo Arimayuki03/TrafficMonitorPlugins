@@ -45,9 +45,18 @@ namespace utilities
             yyjson_val* value = yyjson_obj_get(obj, key);
             if (value != nullptr)
             {
+                //JSON里的整数(如"10")没有小数点，yyjson_is_real为false，需要一并处理int/uint类型
                 if (yyjson_is_real(value))
                 {
                     return static_cast<float>(yyjson_get_real(value));
+                }
+                if (yyjson_is_int(value))
+                {
+                    return static_cast<float>(yyjson_get_int(value));
+                }
+                if (yyjson_is_uint(value))
+                {
+                    return static_cast<float>(yyjson_get_uint(value));
                 }
             }
         }

@@ -15,11 +15,11 @@ namespace utilities
         }
         //读取文件内容
         std::string ini_str;
-        while (!file_stream.eof())
+        char ch;
+        while (file_stream.get(ch))
         {
-            ini_str.push_back(file_stream.get());
+            ini_str.push_back(ch);
         }
-        ini_str.pop_back();
         if (!ini_str.empty() && ini_str.back() != L'\n')        //确保文件末尾有回车符
             ini_str.push_back(L'\n');
         //判断文件是否是utf8编码
@@ -67,11 +67,9 @@ namespace utilities
     std::wstring CIniHelper::GetString(const wchar_t * AppName, const wchar_t * KeyName, const wchar_t* default_str) const
     {
         std::wstring rtn{ _GetString(AppName, KeyName, default_str) };
-        //如果读取的字符串前后有引号，则删除它
-        if (!rtn.empty() && rtn.front() == L'\"')
-            rtn = rtn.substr(1);
-        if (!rtn.empty() && rtn.back() == L'\"')
-            rtn.pop_back();
+        //仅当字符串确实以引号对包裹时才删除引号，未加引号的值保持原样
+        if (rtn.size() >= 2 && rtn.front() == L'\"' && rtn.back() == L'\"')
+            rtn = rtn.substr(1, rtn.size() - 2);
         return rtn;
     }
 
@@ -249,7 +247,7 @@ namespace utilities
             if (str_pos > line_end_pos) //所在行没有等号，则插入一个等号
             {
                 m_ini_str.insert(key_pos + wcslen(KeyName) + 1, L" =");
-                str_pos = key_pos + wcslen(KeyName) + 2;
+                str_pos = key_pos + wcslen(KeyName) + 3;    //跳过插入的" ="，从等号之后开始替换
             }
             else
             {
@@ -324,11 +322,14 @@ namespace utilities
     void CIniHelper::SplitStringList(std::vector<std::wstring>& values, std::wstring str_value)
     {
         StringHelper::StringSplit(str_value, std::wstring(L"\",\""), values);
-        if (!values.empty())
+        //仅当整个值确实以引号对包裹（长度至少为2）时才删除第一项前面和最后一项后面的引号，
+        //未加引号的值和单引号字符必须保持原样，否则会截断内容甚至越界写
+        if (!values.empty() && str_value.size() >= 2 && str_value.front() == L'\"' && str_value.back() == L'\"')
         {
-            //结果中第一项前面和最后一项的后面各还有一个引号，将它们删除
-            values.front() = values.front().substr(1);
-            values.back().pop_back();
+            if (!values.front().empty())
+                values.front() = values.front().substr(1);
+            if (!values.back().empty())
+                values.back().pop_back();
         }
     }
 }

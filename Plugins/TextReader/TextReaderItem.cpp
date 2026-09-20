@@ -50,9 +50,10 @@ void CTextReaderItem::DrawItem(void* hDC, int x, int y, int w, int h, bool dark_
     {
         text.clear();
     }
-    else if (g_data.m_setting_data.current_position < g_data.GetTextContexts().size())
+    else
     {
-        text = g_data.GetTextContexts().substr(g_data.m_setting_data.current_position, 100);
+        //加锁取当前阅读位置的文本快照。位置越界(如换载了更短的文本)时返回空串，避免残留上一次的显示内容
+        text = g_data.GetTextSubstr(g_data.m_setting_data.current_position, 100);
     }
 
     //绘图句柄

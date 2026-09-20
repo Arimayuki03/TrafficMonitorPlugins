@@ -58,7 +58,6 @@ ITMPlugin::OptionReturn CPluginTemplate::ShowOptionsDialog(void* hParent)
 
 const wchar_t* CPluginTemplate::GetInfo(PluginInfoIndex index)
 {
-    static CString str;
     switch (index)
     {
     case TMI_NAME:
@@ -134,7 +133,9 @@ HICON CPluginTemplate::GetIcon(UINT id)
     {
         AFX_MANAGE_STATE(AfxGetStaticModuleState());
         HICON hIcon = (HICON)LoadImage(AfxGetInstanceHandle(), MAKEINTRESOURCE(id), IMAGE_ICON, DPI(16), DPI(16), 0);
-        m_icons[id] = hIcon;
+        //加载失败时不缓存，允许下次重试
+        if (hIcon != nullptr)
+            m_icons[id] = hIcon;
         return hIcon;
     }
 }

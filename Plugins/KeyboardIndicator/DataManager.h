@@ -29,10 +29,7 @@ public:
     void LoadConfig(const std::wstring& config_dir);
     void SaveConfig() const;
     const CString& StringRes(UINT id);      //根据资源id获取一个字符串资源
-    void DPIFromWindow(CWnd* pWnd);
     int DPI(int pixel);
-    float DPIF(float pixel);
-    int RDPI(int pixel);
     HICON GetIcon(UINT id);
 
     SettingData m_setting_data;

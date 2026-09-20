@@ -72,11 +72,12 @@ BOOL COptionsDlg::OnInitDialog()
     SetDlgItemText(IDC_READ_POSITION_EDIT, str);
     str.Format(_T("%d"), m_data.window_width);
     SetDlgItemText(IDC_WINDOW_WIDTH_EDIT, str);
-    str.Format(_T("%d"), static_cast<int>(g_data.GetTextContexts().size()));
+    const size_t text_size = g_data.GetTextLength();
+    str.Format(_T("%d"), static_cast<int>(text_size));
     SetDlgItemText(IDC_TOTAL_CHAR_STATIC, str);
     double percent{};
-    if (g_data.GetTextContexts().size() != 0)
-        percent = static_cast<double>(m_data.current_position) * 100 / g_data.GetTextContexts().size();
+    if (text_size != 0)
+        percent = static_cast<double>(m_data.current_position) * 100 / text_size;
     str.Format(_T("(%.2f%%)"), percent);
     SetDlgItemText(IDC_PERCENT_STATIC, str);
     CheckDlgButton(IDC_SHOT_TOOLTIP_CHECK, m_data.show_in_tooltips);
@@ -140,9 +141,16 @@ void COptionsDlg::OnOK()
     CString current_position_str;
     GetDlgItemText(IDC_READ_POSITION_EDIT, current_position_str);
     m_data.current_position = _ttoi(current_position_str.GetString());
+    if (m_data.current_position < 0)
+        m_data.current_position = 0;
     CString window_width_str;
     GetDlgItemText(IDC_WINDOW_WIDTH_EDIT, window_width_str);
     m_data.window_width = _ttoi(window_width_str);
+    //钳制输入框中的异常值，避免保存后导致显示异常/定时器空转
+    if (m_data.window_width < 1)
+        m_data.window_width = 1;
+    else if (m_data.window_width > 10000)
+        m_data.window_width = 10000;
     m_data.show_in_tooltips = (IsDlgButtonChecked(IDC_SHOT_TOOLTIP_CHECK) != 0);
     m_data.enable_mulit_line = (IsDlgButtonChecked(IDC_ENABLE_MULTI_LINE_CHECK) != 0);
     m_data.hide_when_lose_focus = (IsDlgButtonChecked(IDC_HIDE_WHEN_LOSE_FOCUS_CHECK) != 0);
@@ -151,6 +159,10 @@ void COptionsDlg::OnOK()
     CString auto_read_interval;
     GetDlgItemText(IDC_AUTO_READ_INTERVAL_EDIT, auto_read_interval);
     m_data.auto_read_timer_interval = _ttoi(auto_read_interval);
+    if (m_data.auto_read_timer_interval < 50)       //间隔过小会导致高频空转，负值转UINT后近乎永不触发
+        m_data.auto_read_timer_interval = 50;
+    else if (m_data.auto_read_timer_interval > 3600000)
+        m_data.auto_read_timer_interval = 3600000;
 
     m_data.auto_decode_base64 = (IsDlgButtonChecked(IDC_AUTO_DECODE_CHECK) != 0);
     m_data.use_own_context_menu = (IsDlgButtonChecked(IDC_USE_OWN_CONTEXT_MENU_CHECK) != 0);

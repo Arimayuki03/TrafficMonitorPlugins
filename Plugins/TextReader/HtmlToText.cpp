@@ -121,7 +121,7 @@ std::string CHtmlToText::HtmlToText(const std::string& html)
         if (html.substr(index, 2) == "<h" && html[index + 3] == '>')
         {
             char h_level = html[index + 2];
-            std::string label_end = "</h" + h_level + '>';
+            std::string label_end = std::string("</h") + h_level + '>';   //不能写"</h"+h_level：这是char指针算术(UB)，会得到野指针
             size_t index_end = html.find(label_end, index + 4);
             if (index_end == std::string::npos)
                 break;

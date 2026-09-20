@@ -44,7 +44,6 @@ public:
     void DPIFromWindow(CWnd *pWnd);
     int DPI(int pixel);
     float DPIF(float pixel);
-    int RDPI(int pixel);
     HICON GetIcon(UINT id);
     void ResetText();
     std::shared_ptr<StockData> GetStockData(const std::wstring &code);

@@ -6,6 +6,7 @@
 // 定义自定义消息
 #define FWND_MSG_UPDATE_STATUS (WM_USER + 100)
 #define FWND_MSG_REQUEST_DATA (WM_USER + 101)
+#define FWND_MSG_CLOSE (WM_USER + 102)
 
 class CFloatingWnd : public CWnd
 {
@@ -24,6 +25,7 @@ protected:
     afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
     LRESULT OnUpdateStatus(WPARAM wParam, LPARAM lParam);
     LRESULT OnRequestData(WPARAM wParam, LPARAM lParam);
+    LRESULT OnCloseRequest(WPARAM wParam, LPARAM lParam);
 
 private:
     static UINT NetworkThreadProc(LPVOID pParam); // 线程函数

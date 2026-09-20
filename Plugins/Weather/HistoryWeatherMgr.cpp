@@ -28,6 +28,9 @@ bool CHistoryWeatherMgr::Date::operator<(const Date& another) const
 void CHistoryWeatherMgr::PruneExpiredData()
 {
     //清理超过30天的历史数据，避免历史数据无限增长
+    //PruneExpiredData/Save等所有成员都通过m_history_mutex保护m_history_weather_list，
+    //后台刷新线程与UI线程(打开历史对话框/SaveConfig)并发访问时互斥
+    std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
     CTime cutoff = CTime::GetCurrentTime() - CTimeSpan(30, 0, 0, 0);
     for (auto iter = m_history_weather_list.begin(); iter != m_history_weather_list.end();)
     {
@@ -59,58 +62,77 @@ void CHistoryWeatherMgr::PruneExpiredData()
 
 bool CHistoryWeatherMgr::Save() const
 {
-    std::wstring data_path = g_data.m_config_dir + L"History_weather.dat";
-    // 打开或者新建文件
-    CFile file;
-    BOOL bRet = file.Open(data_path.c_str(),
-        CFile::modeCreate | CFile::modeWrite);
-    if (!bRet)      // 打开文件失败
-        return false;
-    // 构造CArchive对象
-    CArchive ar(&file, CArchive::store);
-    // 写版本号
-    const int version{ 1 };
-    ar << version;
-    // 写数据
-    ar << static_cast<int>(m_history_weather_list.size());
-    for (const auto& item : m_history_weather_list)
+    //在锁内复制数据、锁外写文件，避免写文件期间长时间持锁阻塞其他线程
+    HistoryWeahterMap history_list;
     {
-        ar << item.first;
-        const auto& weather_list = item.second;
-        ar << static_cast<int>(weather_list.size());
-        for (const auto& weather : weather_list)
-        {
-            ar << weather.first.year
-                << weather.first.month
-                << weather.first.day
-                << weather.second.type
-                << weather.second.high_temp
-                << weather.second.low_temp
-                << weather.second.wind
-                ;
-        }
+        std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
+        history_list = m_history_weather_list;
     }
-    // 关闭CArchive对象
-    ar.Close();
-    // 关闭文件
-    file.Close();
-    return true;
+    std::wstring data_path = g_data.m_config_dir + L"History_weather.dat";
+    try
+    {
+        // 打开或者新建文件
+        CFile file;
+        BOOL bRet = file.Open(data_path.c_str(),
+            CFile::modeCreate | CFile::modeWrite);
+        if (!bRet)      // 打开文件失败
+            return false;
+        // 构造CArchive对象
+        CArchive ar(&file, CArchive::store);
+        // 写版本号
+        const int version{ 1 };
+        ar << version;
+        // 写数据
+        ar << static_cast<int>(history_list.size());
+        for (const auto& item : history_list)
+        {
+            ar << item.first;
+            const auto& weather_list = item.second;
+            ar << static_cast<int>(weather_list.size());
+            for (const auto& weather : weather_list)
+            {
+                ar << weather.first.year
+                    << weather.first.month
+                    << weather.first.day
+                    << weather.second.type
+                    << weather.second.high_temp
+                    << weather.second.low_temp
+                    << weather.second.wind
+                    ;
+            }
+        }
+        // 关闭CArchive对象
+        ar.Close();
+        // 关闭文件
+        file.Close();
+        return true;
+    }
+    catch (CException* exception)
+    {
+        //捕获序列化/文件写入时出现的异常(包含CArchiveException/CFileException)。MFC的指针式异常必须手动Delete
+        exception->Delete();
+        return false;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 bool CHistoryWeatherMgr::Load()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
     std::wstring data_path = g_data.m_config_dir + L"History_weather.dat";
     CFile file;
     // 打开文件
     if (file.Open(data_path.c_str(), CFile::modeRead))
     {
-        // 构造CArchive对象
-        CArchive ar(&file, CArchive::load);
-        // 读数据
-        int version{};
-        CString temp_str;
         try
         {
+            // 构造CArchive对象
+            CArchive ar(&file, CArchive::load);
+            // 读数据
+            int version{};
             ar >> version;
             if (version >= 1)
             {
@@ -139,16 +161,16 @@ bool CHistoryWeatherMgr::Load()
                     m_history_weather_list[city] = weather_map;
                 }
             }
+            // 关闭对象。关闭操作放在try内，文件半损时Close再抛出异常也不会逃出本函数
+            ar.Close();
+            // 关闭文件
+            file.Close();
         }
-        catch (CArchiveException* exception)
+        catch (CException* exception)
         {
-            //捕获序列化时出现的异常。MFC的指针式异常必须手动Delete，否则每次加载损坏文件都泄漏一个异常对象
+            //捕获反序列化时出现的异常(包含CArchiveException/CFileException)。MFC的指针式异常必须手动Delete，否则每次加载损坏文件都泄漏一个异常对象
             exception->Delete();
         }
-        // 关闭对象
-        ar.Close();
-        // 关闭文件
-        file.Close();
         return true;
     }
     return false;
@@ -156,6 +178,7 @@ bool CHistoryWeatherMgr::Load()
 
 void CHistoryWeatherMgr::AddWeatherInfo(const CString& city, Date date, const WeatherInfo& weather_info)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
     //先获取原有天气
     HistoryWeather weather = m_history_weather_list[city][date];
     weather.type = weather_info.m_type.c_str();
@@ -196,7 +219,7 @@ void CHistoryWeatherMgr::AddWeatherInfo(const CString& city, yyjson_val* forecas
 
 bool CHistoryWeatherMgr::IsWeatherExist(const CString& city, const Date& date) const
 {
-
+    std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
     auto iter = m_history_weather_list.find(city);
     if (iter == m_history_weather_list.end())
         return false;
@@ -208,8 +231,9 @@ bool CHistoryWeatherMgr::IsWeatherExist(const CString& city, const Date& date) c
     return true;
 }
 
-const CHistoryWeatherMgr::HistoryWeahterMap& CHistoryWeatherMgr::GetHistoryWeather() const
+CHistoryWeatherMgr::HistoryWeahterMap CHistoryWeatherMgr::GetHistoryWeatherCopy() const
 {
+    std::lock_guard<std::recursive_mutex> lock(m_history_mutex);
     return m_history_weather_list;
 }
 
