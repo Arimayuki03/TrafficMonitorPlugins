@@ -100,9 +100,9 @@ Displays real-time trading information for specified stocks. Use the Sina interf
 
 * Download url:
 
-  GitHub: [Release Stock_V1.13 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.13)
+  GitHub: [Release Stock_V1.14 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.14)
 
-  Gitee: [Stock_V1.13 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.13)
+  Gitee: [Stock_V1.14 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.14)
 
 ---
 
@@ -161,13 +161,13 @@ Description:
 - Start TrafficMonitor, open "Plugin Manager" dialog, select "Hardware Monitor plugin", click "Options", click "Add monitoring Items" button, right click the item to be monitored, select "Add to monitoring items", and close the dialog.
 - Close all dialogs, restart TrafficMonitor, right-click the taskbar window, select "Display Settings", the added hardware monitoring items can be seen in the dialog.
 
-* Version: V1.00
+* Version: V1.0.1
 
 * Download url:
 
-  GitHub: [Release HardwareMonitor_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.00)
+  GitHub: [Release HardwareMonitor_V1.0.1 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.0.1)
 
-  Gitee: [HardwareMonitor_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.00)
+  Gitee: [HardwareMonitor_V1.0.1 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.0.1)
 
 ---
 
@@ -203,13 +203,21 @@ A TrafficMonitor plugin to support writing plugin by lua script.
 
 A plugin used to display the status of keys such as Caps Lock, Num Lock, and Scroll Lock on the keyboard.
 
-* Version: V1.00
+The version in this repository (V1.10) is enhanced based on the original one:
+
+* **Real-time key display**: The currently pressed key combination (e.g., `Ctrl+Shift+A`) is shown on the taskbar in real time and highlighted while held.
+* **Delayed display after key release**: The key can remain visible in gray for a configurable duration after release.
+* **Reserved display width** and **DPI awareness**, with an improved options dialog.
+
+* Version: V1.10
 
 * Download url:
 
-  GitHub: [Release KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)
+  GitHub: [Release KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00) (original)
 
-  Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)
+  Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00) (original)
+
+  This repository (V1.10, enhanced): [Release KeyboardIndicator_V1.10 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.10)
 
 ### Loudness Meter
 

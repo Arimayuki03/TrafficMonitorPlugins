@@ -1,78 +1,125 @@
-# TrafficMonitorPlugins
+<div align="center">
 
-这是[TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor)官方插件仓库（[zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins)）的一个 fork。
+# TrafficMonitor Plugins
 
-> **关于本仓库**：本仓库在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了系统性代码审查与修复（第一轮 89 项 + 第二/三轮复审残留 15 项 + 第四轮交叉验证最终整改 19 项及约 70 项 P2，详见[修复文档](修复文档.md)），并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
+**[TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) 官方插件仓库的功能增强 Fork**
 
-## 插件下载
+[![Build](https://img.shields.io/github/actions/workflow/status/Arimayuki03/TrafficMonitorPlugins/build.yml?branch=main&label=Build&logo=github)](https://github.com/Arimayuki03/TrafficMonitorPlugins/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/Arimayuki03/TrafficMonitorPlugins?label=Release&logo=github)](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows)](https://github.com/Arimayuki03/TrafficMonitorPlugins)
+[![Language](https://img.shields.io/badge/language-C%2B%2B%20%2F%20MFC-00599C?logo=cplusplus&logoColor=white)](https://github.com/Arimayuki03/TrafficMonitorPlugins)
+[![License](https://img.shields.io/github/license/Arimayuki03/TrafficMonitorPlugins)](LICENSE)
+[![Upstream](https://img.shields.io/badge/upstream-zhongyang219%2FTrafficMonitorPlugins-8A2BE2)](https://github.com/zhongyang219/TrafficMonitorPlugins)
 
-请点击以下链接转到插件下载页面：
+[插件下载](#-插件下载) · [本仓库的更新](#-本仓库的更新) · [安装与使用](#-安装与使用) · [插件开发](#-插件开发) · [参与贡献](#-参与贡献)
 
-[TrafficMonitor 插件下载](./download/plugin_download.md)
+**简体中文** | English 文档见各插件下载页
 
-## 本仓库的更新
+</div>
 
-### KeyboardIndicator（键盘指示器）—— 功能增强
+---
 
-在原插件（用于显示 Caps Lock、Num Lock、Scroll Lock 状态）的基础上进行了功能增强，当前版本 **V1.10**，主要更新内容：
+## 📦 插件下载
 
-* **实时按键显示**：新增低级键盘钩子模块，在独立线程中实时捕获全系统按键，任务栏可实时显示当前按下的按键组合（如 `Ctrl+Shift+A`），按住时高亮显示。
-* **按键松开后延时显示**：按键松开后可在设定时长内（默认 1000 毫秒）以灰色继续显示，避免快速敲击时看不到按键内容。
-* **预留显示宽度**：按键显示区支持固定预留宽度，避免按键按下瞬间因主程序宽度重算延迟而被遮挡；也可设置为按内容自适应。
-* **DPI 自适应**：绘制与文本测量按绘图 DC 的实际 DPI 自适应，修复高 DPI 屏幕下的显示偏差。
-* **设置界面优化**：新增上述功能对应的设置项（显示开关、松开后显示时长、预留宽度等），并优化了设置对话框布局。
+**[前往插件下载页面 →](./download/plugin_download.md)**（[English](./download/plugin_download_en.md)）
 
-### 全部插件及共享库 —— 代码审查修复（FIX-001~089）
+[GitHub Releases](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases) 提供本仓库构建的最新插件包（x64 / Release）。
 
-基于对全部 10 个插件及 utilities 共享工具库（约 1.6 万行 C++）的代码审查，按 P0（崩溃/数据损坏）、P1（功能错误/资源泄漏/数据竞争）、P2（边缘情况/代码质量）三级共修复 89 项问题，完整清单见[修复文档](修复文档.md)。主要包括：
+## 📋 插件列表
 
-* **崩溃类（P0）**：修复 DateTime 采样文本悬空指针、TextReader HTML 解析下溢越界、Stock 后台线程锁外写共享数据等可导致宿主进程崩溃的问题。
-* **数据竞争与死锁**：为 TextReader、Stock、Weather 的后台线程共享数据补齐互斥锁；修复 Stock 持锁 `SendMessage` 与 UI 线程互等死锁。
-* **资源管理**：修复多处 GDI+ 未初始化/未配对释放、HICON/定时器泄漏、`LoadImage` 失败结果被永久缓存、网络会话泄漏等。
-* **功能错误**：修复 IpAddress 数据永不刷新、Weather 日期解析无长度守卫、HardwareMonitor 单位换算系数错误、传感器空值导致监控项冻结等。
-* **兼容性修复**：`GetURL` 网络读取不再依赖系统区域设置，正确处理 BOM 与 UTF-16 编码。
+本仓库包含以下插件（均为 x64，需配合 [TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) 使用）：
 
-所有修复均已通过编译验证：本机 VS2022 Release|x64 编译 11 个项目零错误，并通过 GitHub Actions CI（windows-2022）完成全部插件（含 C++/CLI 的 HardwareMonitor）的编译验证。
+| 插件 | 版本 | 说明 |
+|---|---|---|
+| KeyboardIndicator 键盘指示器 | V1.10 | 显示 Caps Lock / Num Lock / Scroll Lock 状态；本仓库增强版支持**实时按键显示** |
+| HardwareMonitor 硬件监控 | V1.0.1 | 基于 LibreHardwareMonitor 显示 CPU / GPU / 内存 / 硬盘等传感器信息 |
+| Stock 股票 | V1.14 | 新浪接口实时股票行情 |
+| Weather / WeatherPro 天气 | V1.03 | 天气显示，支持中国城市手动选择 |
+| DateTime 时间日期 | V1.00 | 任务栏日期与时间 |
+| IpAddress IP 地址 | V1.00 | 显示本地 IP 地址 |
+| Battery 电池电量 | V1.03 | 电池电量、剩余电量与电压信息 |
+| TextReader 文本阅读器 | V1.02 | 在任务栏阅读文本文件，支持章节、书签与自动翻页 |
+| LoudnessMeter 响度计 | V1.00 | 显示当前系统音量 |
+| PomodoroTimer 番茄钟、PowerMonPlugin 功率监控等 | — | 由第三方作者维护，见[下载页](./download/plugin_download.md) |
 
-### 第四轮：三份独立复审交叉验证后的最终整改（2026-09-20）
+## ✨ 本仓库的更新
 
-在第二/三轮修复的基础上，三份独立复审报告经逐条交叉验证与真实编译/运行实测后，按最终确认清单完成整改（FIX-090~108 及约 70 项 P2）：
+本仓库是 [zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins) 的 fork，在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了系统性代码审查与修复，并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
 
-* **崩溃/数据损坏（P0）**：base64 误判普通文本与越界读、IniHelper 单引号值堆破坏、Stock 主窗口点击崩溃、HardwareMonitor 老宿主通知崩溃与 m_items 跨线程重建竞态。
-* **死锁与数据竞争（P1）**：Stock 残留的持锁 SendMessage 死锁；HardwareMonitor items_info/sensorMap/控件访问全面并发整改（快照交换 + BeginInvoke 封送 + 逐项异常隔离）；Weather 锁缺口与“自动定位被旧副本回滚”；Battery/IpAddress/DateTime/KeyboardIndicator/TextReader 的 tooltip/数值文本跨线程写读全部改为“锁内拷贝副本”或值快照。
-* **功能正确性**：HardwareMonitor LoadConfig 数值钳制（消除 value_width 负值 terminate 与 “F-1” 显示链）、树上/下移边界、深层传感器可见；TextReader 章节定位 off-by-one、请求归属校验；Stock RDPI 方向、分时失败语义；IpAddress 样本文本恒定宽度（DHCP 换长 IP 不再截断）。
-* **卫生**：错别字、死代码、GBK 资源文件字节级精确修改、.gitignore 补 RCa* 与 *.res、OutDir 统一。
+### KeyboardIndicator（键盘指示器）—— 功能增强 V1.10
 
-验证：本机 Release|x64 全解决方案 Rebuild **12/12 项目零错误**（含 C++/CLI 的 HardwareMonitor，本地经 FrameworkPathOverride 补齐 .NET 引用完成整链编译；正式产物以 CI 为准），编译警告与整改前基线完全一致（零新增）；base64/IniHelper 等关键模块以真实源码编译执行 58/58 行为测试用例。
+在原插件（用于显示 Caps Lock、Num Lock、Scroll Lock 状态）的基础上进行了功能增强：
 
-## 插件使用说明
+- **实时按键显示**：新增低级键盘钩子模块，在独立线程中实时捕获全系统按键，任务栏可实时显示当前按下的按键组合（如 `Ctrl+Shift+A`），按住时高亮显示。
+- **按键松开后延时显示**：按键松开后可在设定时长内（默认 1000 毫秒）以灰色继续显示，避免快速敲击时看不到按键内容。
+- **预留显示宽度**：按键显示区支持固定预留宽度，避免按键按下瞬间因主程序宽度重算延迟而被遮挡；也可设置为按内容自适应。
+- **DPI 自适应**：绘制与文本测量按绘图 DC 的实际 DPI 自适应，修复高 DPI 屏幕下的显示偏差。
+- **设置界面优化**：新增上述功能对应的设置项（显示开关、松开后显示时长、预留宽度等），并优化了设置对话框布局。
 
-根据TrafficMonitor的版本（x86为32位，x64为64位）选择对应版本的插件，下载后解压可得到dll文件，下载后将插件dll放到TrafficMonitor程序所在目录下的`plugins`目录下：
+### 全部插件及共享库 —— 代码审查修复（FIX-001~108）
 
-![image-20221013203124953](images/image-20221013203124953.png)
+基于对全部 10 个插件及 utilities 共享工具库（约 1.6 万行 C++）的四轮代码审查与交叉验证，按 **P0（崩溃/数据损坏）→ P1（功能错误/资源泄漏/数据竞争）→ P2（边缘情况/代码质量）** 三级共修复 200 余项问题，完整清单见[修复文档](修复文档.md)。主要包括：
 
-重新启动TrafficMonitor后可以在“选项”——“常规设置”——“插件管理”中看到所有的插件：
+- **崩溃类（P0）**：DateTime 采样文本悬空指针、TextReader HTML 解析下溢越界、base64 误判普通文本与越界读、IniHelper 单引号值堆破坏、Stock 主窗口点击崩溃、HardwareMonitor 老宿主通知崩溃与跨线程重建竞态等。
+- **死锁与数据竞争（P1）**：为 TextReader、Stock、Weather、HardwareMonitor 等的后台线程共享数据补齐互斥锁；修复 Stock 持锁 `SendMessage` 与 UI 线程互等死锁；tooltip / 数值文本跨线程写读全部改为“锁内拷贝副本”或值快照。
+- **资源管理**：修复多处 GDI+ 未初始化/未配对释放、HICON/定时器泄漏、网络会话泄漏等。
+- **功能正确性**：IpAddress 数据永不刷新、HardwareMonitor 单位换算系数错误与 LoadConfig 数值钳制、Weather 日期解析无长度守卫、TextReader 章节定位 off-by-one 等。
+- **兼容性**：`GetURL` 网络读取不再依赖系统区域设置，正确处理 BOM 与 UTF-16 编码。
 
-![image-20221013203353499](images/image-20221013203353499.png)
+### ✅ 验证
 
-要使插件项目显示到任务栏中，请在任务栏窗口上点击鼠标右键，选择“显示设置”。
+- 本机 VS2022 Release|x64 全解决方案 Rebuild **12/12 项目零错误**（含 C++/CLI 的 HardwareMonitor），编译警告与整改前基线完全一致（零新增）。
+- 通过 GitHub Actions CI（windows-2022）完成全部插件编译验证，构建产物见 [Releases](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases)。
+- base64 / IniHelper 等关键模块以真实源码编译执行 **58/58** 行为测试用例。
 
-![image-20221013203527593](images/image-20221013203527593.png)
+## 🔧 编译
 
-![image-20221013203621714](images/image-20221013203621714.png)
+- **环境**：Visual Studio 2022（v143 工具集，需安装 MFC 组件）；HardwareMonitor 额外需要 .NET Framework 4.7.2 目标包与 C++/CLI 支持。
+- **步骤**：打开 `TrafficMonitorPlugins.sln`，选择 `Release | x64`，生成解决方案即可；产物输出至 `bin/x64/Release/`。
+- 也可以直接fork本仓库后使用 GitHub Actions（`.github/workflows/build.yml`）云端编译。
 
-此时，“显示设置”中会显示已加载的插件项目，勾选你希望显示在任务栏上的项目，点击确定即可。
+## 📖 安装与使用
 
-关于更多插件使用的详细说明，请参考以下链接：
+1. 根据 TrafficMonitor 的版本（x86 为 32 位，x64 为 64 位）选择对应版本的插件，下载后解压得到 dll 文件。
+2. 将插件 dll 放到 TrafficMonitor 程序所在目录下的 `plugins` 目录（没有则新建）：
 
-[插件功能 · zhongyang219/TrafficMonitor Wiki (github.com)](https://github.com/zhongyang219/TrafficMonitor/wiki/插件功能)
+   ![plugins 目录](images/image-20221013203124953.png)
 
-## 如何开发插件
+3. 重新启动 TrafficMonitor，在 **“选项” → “常规设置” → “插件管理”** 中可以看到所有插件：
 
-关于如何开发TrafficMonitor，请参考以下链接：
+   ![插件管理](images/image-20221013203353499.png)
 
-[插件开发指南 · zhongyang219/TrafficMonitor Wiki (github.com)](https://github.com/zhongyang219/TrafficMonitor/wiki/插件开发指南)
+4. 要使插件项目显示到任务栏中，请在任务栏窗口上点击鼠标右键，选择 **“显示设置”**：
 
-## 插件的提交
+   ![显示设置](images/image-20221013203527593.png)
 
-你可以向我发送电子邮件来提交你开发的插件，并附上插件简介和下载地址。也可以直接向此仓库提交pull request来更新插件下载页面：[plugin_download.md](download/plugin_download.md) 和 [plugin_download_en.md](download/plugin_download_en.md)，按照文档原来的格式添加插件介绍和下载链接。同时更新一下[plugins_version.xml](plugins_version.xml)文件，这个文件用于在TrafficMonitor的“插件管理”界面显示插件是否有更新，在`plugins_version.xml`中添加你插件的文件名和最新的版本号，当插件有更新时也要更新一下这个文件里的版本号。
+   ![勾选插件项目](images/image-20221013203621714.png)
+
+5. 此时“显示设置”中会显示已加载的插件项目，勾选你希望显示在任务栏上的项目，点击确定即可。
+
+关于更多插件使用的详细说明，请参考 [插件功能 · TrafficMonitor Wiki](https://github.com/zhongyang219/TrafficMonitor/wiki/插件功能)。
+
+## 💡 插件开发
+
+关于如何开发 TrafficMonitor 插件，请参考：
+
+- [插件开发指南 · TrafficMonitor Wiki](https://github.com/zhongyang219/TrafficMonitor/wiki/插件开发指南)
+- 本仓库的 [PluginTemplate](Plugins/PluginTemplate) 项目可作为插件工程模板，[PluginTester](PluginTester) 可用于脱离主程序独立调试插件。
+
+## 🤝 参与贡献
+
+欢迎通过 Pull Request 或 Issue 参与贡献：
+
+- 修复插件缺陷或增强功能：直接修改对应插件目录并提交 PR。
+- 提交新插件：向 [plugin_download.md](download/plugin_download.md) 和 [plugin_download_en.md](download/plugin_download_en.md) 按原有格式添加插件介绍与下载链接，同时更新 [plugins_version.xml](plugins_version.xml)（该文件用于 TrafficMonitor “插件管理”界面的更新检查）。
+- 上游插件提交插件请发送邮件至 zhongyang219@hotmail.com，并附上插件简介与下载地址。
+
+## 📄 许可证
+
+本项目沿用上游 [LICENSE](LICENSE)。
+
+## 🙏 致谢
+
+- [zhongyang219/TrafficMonitor](https://github.com/zhongyang219/TrafficMonitor) —— 优秀的任务栏流量监控工具
+- [zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins) —— 上游官方插件仓库
+- 所有插件的原作者：[CListery](https://github.com/CListery)、[Haojia521](https://github.com/Haojia521)、[AzulEterno](https://github.com/AzulEterno) 等

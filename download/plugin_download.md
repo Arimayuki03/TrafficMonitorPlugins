@@ -106,9 +106,9 @@
 
   * 主干
 
-    * GitHub: [Release Stock_V1.13 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.13)
+    * GitHub: [Release Stock_V1.14 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.14)
 
-    * Gitee: [Stock_V1.13 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.13)
+    * Gitee: [Stock_V1.14 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/Stock_V1.14)
 
   * 分支
 
@@ -171,13 +171,13 @@
 - 启动TrafficMonitor，打开“插件管理”对话框，选中“硬件监控插件”，点击“选项”，点击“添加监控项”，按钮，在“硬件信息”对话框中选择要添加的监控项，点击鼠标右键，选择“添加到监控项目”，关闭对话框。
 - 关闭所有对话框，重新启动TrafficMonitor，在任务栏窗口点击右键菜单，选择“显示设置”，即可看到添加的硬件监控项目。
 
-* 版本：V1.00
+* 版本：V1.0.1
 
 * 下载链接：
 
-  GitHub: [Release HardwareMonitor_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.00)
+  GitHub: [Release HardwareMonitor_V1.0.1 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.0.1)
   
-  Gitee: [HardwareMonitor_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.00)
+  Gitee: [HardwareMonitor_V1.0.1 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/HardwareMonitor_V1.0.1)
 
 ---
 
@@ -215,13 +215,21 @@
 
 一个用于显示键盘Caps Lock、Num Lock、Scroll Lock等状态的插件。
 
-* 版本：V1.00
+本仓库版本（V1.10）在原版基础上进行了功能增强：
+
+* **实时按键显示**：任务栏可实时显示当前按下的按键组合（如 `Ctrl+Shift+A`），按住时高亮显示。
+* **按键松开后延时显示**：松开后可在设定时长内以灰色继续显示，避免快速敲击时看不到按键内容。
+* **预留显示宽度**与**DPI 自适应**，设置界面同步优化。
+
+* 版本：V1.10
 
 * 下载链接：
 
-  GitHub: [Release KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)
+  GitHub: [Release KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)（原版）
 
-  Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)
+  Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)（原版）
+
+  本仓库版（V1.10，功能增强）：[Release KeyboardIndicator_V1.10 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.10)
 
 
 
