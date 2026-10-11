@@ -10,6 +10,8 @@
 // 添加要在此处预编译的标头
 #include "framework.h"
 
+#include <afxcmn.h>     // MFC 公共控件(设置界面中的统计列表 CListCtrl)
+
 #include "resource.h"
 
 

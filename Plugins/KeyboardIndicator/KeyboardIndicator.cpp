@@ -15,9 +15,9 @@ CKeyboardIndicator& CKeyboardIndicator::Instance()
     return m_instance;
 }
 
-IPluginItem* CKeyboardIndicator::GetItem(int index)
+IPluginItem* CKeyboardIndicator::GetItem(int item_index)
 {
-    switch (index)
+    switch (item_index)
     {
     case 0:
         return &m_item;
@@ -37,13 +37,16 @@ const wchar_t* CKeyboardIndicator::GetTooltipInfo()
 
 void CKeyboardIndicator::DataRequired()
 {
-    //仅在“实时显示按下的按键”功能开启时保持键盘钩子运行，关闭时卸载钩子线程
+    //同步按键统计：更新统计开关、汇入会话增量、跨天归档与按需落盘
+    //（统计关闭时内部只同步开关状态，开销可忽略）
+    g_data.UpdateKeyStats();
+    //仅在"实时显示按下的按键"功能开启时保持键盘钩子运行，关闭时卸载钩子线程
     //(无法感知插件被宿主禁用的时机，此时钩子仍会随插件数据刷新保持运行)
-    if (g_data.m_setting_data.show_pressed_key)
+    if (g_data.m_setting_data.show_pressed_key || g_data.m_setting_data.enable_key_stats)
         CKeyboardHook::Instance().Start();
     else
         CKeyboardHook::Instance().Stop();
-    //更新鼠标提示文本：锁定键状态和最近按下的按键
+    //更新鼠标提示文本：锁定键状态、最近按下的按键与按键统计
     std::wstring tooltip;
     tooltip += L"Caps Lock: ";
     tooltip += (IsCapsLockOn() ? L"On" : L"Off");
@@ -57,16 +60,24 @@ void CKeyboardIndicator::DataRequired()
         tooltip += L"\r\nLast key: ";
         tooltip += last_key;
     }
+    if (g_data.m_setting_data.enable_key_stats)
+    {
+        //统计摘要：累计与当日按键次数
+        wchar_t buff[96];
+        swprintf_s(buff, L"\r\nKeys total: %llu\r\nKeys today: %llu",
+            g_data.GetStatsTotal(), g_data.GetStatsToday());
+        tooltip += buff;
+    }
     //先组装到局部串，锁内一次性更新成员，避免UI线程读到不一致或已释放的内容
     std::lock_guard<std::mutex> lock(m_tooltip_mutex);
     m_tooltip_info = tooltip;
 }
 
-ITMPlugin::OptionReturn CKeyboardIndicator::ShowOptionsDialog(void* hParent)
+ITMPlugin::OptionReturn CKeyboardIndicator::ShowOptionsDialog(void* parent_hwnd)
 {
     AFX_MANAGE_STATE(AfxGetStaticModuleState());
-    CWnd* pParent = CWnd::FromHandle((HWND)hParent);
-    COptionsDlg dlg(pParent);
+    CWnd* parent_wnd = CWnd::FromHandle((HWND)parent_hwnd);
+    COptionsDlg dlg(parent_wnd);
     dlg.m_data = g_data.m_setting_data;
     if (dlg.DoModal() == IDOK)
     {
@@ -92,7 +103,7 @@ const wchar_t* CKeyboardIndicator::GetInfo(PluginInfoIndex index)
     case ITMPlugin::TMI_URL:
         return L"https://github.com/zhongyang219/TrafficMonitorPlugins";
     case TMI_VERSION:
-        return L"1.10";
+        return L"1.11";
     default:
         break;
     }
@@ -104,7 +115,7 @@ void CKeyboardIndicator::OnExtenedInfo(ExtendedInfoIndex index, const wchar_t* d
     switch (index)
     {
     case ITMPlugin::EI_CONFIG_DIR:
-        //从配置文件读取配置
+        //从配置文件目录读取配置
         g_data.LoadConfig(std::wstring(data));
         break;
     default:

@@ -17,6 +17,32 @@ static bool GetPressedKeyText(std::wstring& text)
     return CKeyboardHook::Instance().GetDisplayText(text, g_data.m_setting_data.pressed_key_show_time);
 }
 
+//获取当前要显示的累计按键计数文本。统计未启用或不显示计数时返回false
+static bool GetKeyCountText(std::wstring& text)
+{
+    if (!g_data.m_setting_data.enable_key_stats || !g_data.m_setting_data.show_key_count)
+        return false;
+    unsigned long long total = g_data.GetStatsTotal();
+    wchar_t buff[24];
+    swprintf_s(buff, L"%llu", total);
+    text = buff;
+    return true;
+}
+
+//获取当前要显示的KPM文本(如"42/min")。统计未启用或未开启KPM时返回false。
+//KPM是独立显示项：不依赖"显示累计计数"开关，关闭计数时KPM框独自显示在最左
+static bool GetKpmText(std::wstring& text)
+{
+    if (!g_data.m_setting_data.enable_key_stats || !g_data.m_setting_data.show_kpm)
+        return false;
+    unsigned long current_kpm = 0, peak_kpm = 0, avg_kpm = 0;
+    CKeyboardHook::Instance().GetTypingSpeed(current_kpm, peak_kpm, avg_kpm);
+    wchar_t buff[24];
+    swprintf_s(buff, L"%lu/min", current_kpm);
+    text = buff;
+    return true;
+}
+
 
 const wchar_t* CKeyboardIndicatorItem::GetItemName() const
 {
@@ -115,8 +141,37 @@ int CKeyboardIndicatorItem::GetItemWidthEx(void * hDC) const
         {
             //预留宽度为0时按当前显示的按键文本自适应
             std::wstring pressed_key_text;
-            if (CKeyboardHook::Instance().GetDisplayText(pressed_key_text, g_data.m_setting_data.pressed_key_show_time))
+            if (GetPressedKeyText(pressed_key_text))
                 width += (pDC->GetTextExtent(pressed_key_text.c_str()).cx + ctx.item_space);
+        }
+    }
+    //累计按键计数显示区
+    if (g_data.m_setting_data.enable_key_stats && g_data.m_setting_data.show_key_count)
+    {
+        if (g_data.m_setting_data.key_count_reserved_width > 0)
+        {
+            width += (g_data.m_setting_data.key_count_reserved_width * ctx.dpi / 96 + ctx.item_space);
+        }
+        else
+        {
+            //预留宽度为0时按当前计数文本自适应
+            std::wstring count_text;
+            if (GetKeyCountText(count_text))
+                width += (pDC->GetTextExtent(count_text.c_str()).cx + ctx.item_space);
+        }
+    }
+    //KPM显示区(独立于计数显示，两者都开时KPM在计数右侧)
+    if (g_data.m_setting_data.enable_key_stats && g_data.m_setting_data.show_kpm)
+    {
+        if (g_data.m_setting_data.kpm_reserved_width > 0)
+        {
+            width += (g_data.m_setting_data.kpm_reserved_width * ctx.dpi / 96 + ctx.item_space);
+        }
+        else
+        {
+            std::wstring kpm_text;
+            if (GetKpmText(kpm_text))
+                width += (pDC->GetTextExtent(kpm_text.c_str()).cx + ctx.item_space);
         }
     }
     //恢复字体
@@ -129,11 +184,14 @@ static void DrawRectOutLine(CDC* pDC, CRect rect, COLORREF color, int pen_width)
     CPen aPen, * pOldPen;
     aPen.CreatePen(PS_SOLID, pen_width, color);
     pOldPen = pDC->SelectObject(&aPen);
-    CBrush* pOldBrush{ dynamic_cast<CBrush*>(pDC->SelectStockObject(NULL_BRUSH)) };
+    //SelectStockObject返回的是CGdiObject临时包装，dynamic_cast<CBrush*>恒为空，
+    //恢复会变成no-op并把NULL_BRUSH状态泄漏进宿主DC；用基类指针保存并回写
+    CGdiObject* pOldBrush = pDC->SelectStockObject(NULL_BRUSH);
 
     pDC->Rectangle(rect);
     pDC->SelectObject(pOldPen);
-    pDC->SelectObject(pOldBrush);       // Restore the old brush
+    if (pOldBrush != nullptr)
+        pDC->SelectObject(pOldBrush);   // Restore the old brush
     aPen.DeleteObject();
 }
 
@@ -170,7 +228,7 @@ static void DrawRoundRectOutLine(CDC* pDC, CRect rect, COLORREF color, float pen
     graphics.DrawPath(&pen, &path);
 }
 
-static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool enable, COLORREF color_ori, int pen_width, int corner_radius, int spacing, int text_gap, int max_width = 0)
+static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool enable, COLORREF color_ori, int pen_width, int corner_radius, int spacing, int text_gap, int max_width = 0, COLORREF color_text_override = 0)
 {
     COLORREF color_default;
     COLORREF color_disable;
@@ -185,7 +243,8 @@ static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_
         color_disable = RGB(140, 140, 140);
     }
 
-    COLORREF color_text = enable ? color_ori : color_disable;
+    //外部指定的文本色优先(如每日目标达标时的绿色计数)，否则用原有明暗逻辑
+    COLORREF color_text = (color_text_override != 0) ? color_text_override : (enable ? color_ori : color_disable);
     COLORREF color_frame = enable ? color_default : color_disable;
     //根据文本宽度设置矩形的宽度
     rect.right = rect.left + pDC->GetTextExtent(text).cx + text_gap;
@@ -232,6 +291,31 @@ void CKeyboardIndicatorItem::DrawItem(void* hDC, int x, int y, int w, int h, boo
     CRect rect_indicator{ rect };
     rect_indicator.top += (rect.Height() - item_height) / 2;
     rect_indicator.bottom = rect_indicator.top + item_height;
+    //最先绘制累计按键计数(位于整个显示区的最左侧)，统计启用且开启显示时绘制；
+    //设定了每日目标且当日计数达标时，计数文字变绿色
+    std::wstring count_text;
+    if (GetKeyCountText(count_text))
+    {
+        COLORREF count_color = 0;
+        const int goal = g_data.m_setting_data.daily_goal;
+        if (goal > 0 && g_data.GetStatsToday() >= static_cast<unsigned long long>(goal))
+            count_color = dark_mode ? RGB(80, 220, 100) : RGB(0, 150, 60);
+        //固定预留宽度模式下以预留宽度为计数框上限(计数在首位绘制，若按剩余区域计算
+        //上限则恒等于整项宽度，计数文本过长会把后续指示项推出边界)；自适应模式不设限
+        int max_count_width = 0;
+        if (g_data.m_setting_data.key_count_reserved_width > 0)
+            max_count_width = g_data.m_setting_data.key_count_reserved_width * ctx.dpi / 96;
+        DrawIndicator(pDC, rect_indicator, count_text.c_str(), dark_mode, TRUE, color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap, max_count_width, count_color);
+    }
+    //绘制当前KPM(计数右侧)，统计启用且开启KPM显示时绘制
+    std::wstring kpm_text;
+    if (GetKpmText(kpm_text))
+    {
+        int max_kpm_width = 0;
+        if (g_data.m_setting_data.kpm_reserved_width > 0)
+            max_kpm_width = g_data.m_setting_data.kpm_reserved_width * ctx.dpi / 96;
+        DrawIndicator(pDC, rect_indicator, kpm_text.c_str(), dark_mode, TRUE, color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap, max_kpm_width);
+    }
     //绘制Caps Lock
     if (g_data.m_setting_data.show_caps_lock)
         DrawIndicator(pDC, rect_indicator, INDICATOR_CAPS_LOCK, dark_mode, CKeyboardIndicator::IsCapsLockOn(), color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap);
