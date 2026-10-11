@@ -91,9 +91,6 @@ CKeyboardIndicatorItem::DrawContext CKeyboardIndicatorItem::PrepareDrawContext(H
     ctx.item_height = dpi(14);
     ctx.text_gap = dpi(4);
     ctx.box_space = dpi(2);
-    //每个指示器占用的宽度 = 文字 + text_gap + box_space，与DrawIndicator的实际横向推进一致
-    //(框宽 文字+text_gap，推进后再加box_space)，保证预留宽度不小于绘制消耗，避免末尾指示器被裁剪
-    ctx.item_space = ctx.text_gap + ctx.box_space;
     ctx.font = GetFontFor(ctx.font_height);
     return ctx;
 }
@@ -113,6 +110,97 @@ CFont* CKeyboardIndicatorItem::GetFontFor(int font_height) const
     return result.first->second.get();
 }
 
+//按用户配置的顺序收集当前可见的显示区域，并计算各自的宽度。
+//测量与绘制都调用本函数，是宽度计算的唯一来源：任何"某区域宽度设置不生效"的问题
+//都只可能出在这里，不会再出现测量与绘制各算一套的情况
+std::vector<CKeyboardIndicatorItem::FieldPlan> CKeyboardIndicatorItem::PlanFields(CDC* pDC, const DrawContext& ctx) const
+{
+    const SettingData& setting = g_data.m_setting_data;
+    //区域宽度 = 文字宽度 + 框内左右留白；配置了最小宽度(>0)时至少保持该宽度(按本DC的DPI缩放)。
+    //最小宽度保证任务栏宽度不随内容长短抖动，内容更长时自动扩展，绝不裁掉内容
+    auto field_width = [&](const std::wstring& text, int min_width) {
+        int width = pDC->GetTextExtent(text.c_str()).cx + ctx.text_gap;
+        if (min_width > 0)
+        {
+            const int scaled = ctx.dpi * min_width / 96;
+            if (width < scaled)
+                width = scaled;
+        }
+        return width;
+    };
+    std::vector<FieldPlan> fields;
+    fields.reserve(DISPLAY_ITEM_COUNT);
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        //顺序表来自INI，LoadConfig已校验为合法排列，这里再兜底一次以防御越界
+        const int item_index = setting.item_order[i];
+        if (item_index < 0 || item_index >= DISPLAY_ITEM_COUNT)
+            continue;
+        const DisplayItem item = static_cast<DisplayItem>(item_index);
+        FieldPlan field;
+        field.id = item;
+        field.color = setting.item_colors[item_index];
+        switch (item)
+        {
+        case DisplayItem::CapsLock:
+            if (!setting.show_caps_lock)
+                continue;
+            field.text = INDICATOR_CAPS_LOCK;
+            field.active = CKeyboardIndicator::IsCapsLockOn();
+            field.width = field_width(field.text, 0);
+            break;
+        case DisplayItem::NumLock:
+            if (!setting.show_num_lock)
+                continue;
+            field.text = INDICATOR_NUM_LOCK;
+            field.active = CKeyboardIndicator::IsNumLockOn();
+            field.width = field_width(field.text, 0);
+            break;
+        case DisplayItem::ScrollLock:
+            if (!setting.show_scroll_lock)
+                continue;
+            field.text = INDICATOR_SCROLL_LOCK;
+            field.active = CKeyboardIndicator::IsScrollLockOn();
+            field.width = field_width(field.text, 0);
+            break;
+        case DisplayItem::KeyCount:
+            if (!setting.enable_key_stats || !setting.show_key_count)
+                continue;
+            if (!GetKeyCountText(field.text))
+                continue;
+            field.active = true;
+            field.width = field_width(field.text, setting.key_count_reserved_width);
+            break;
+        case DisplayItem::Kpm:
+            if (!setting.enable_key_stats || !setting.show_kpm)
+                continue;
+            if (!GetKpmText(field.text))
+                continue;
+            field.active = true;
+            field.width = field_width(field.text, setting.kpm_reserved_width);
+            break;
+        case DisplayItem::PressedKey:
+        {
+            if (!setting.show_pressed_key)
+                continue;
+            GetPressedKeyText(field.text);
+            field.active = CKeyboardHook::Instance().IsAnyKeyDown();
+            const int min_width = setting.pressed_key_reserved_width;
+            //配置了最小宽度时始终占位(没有按键按下时留空框位)：主程序每隔1秒才重算
+            //显示区宽度，始终占位才不会在按下/松开按键时让整个显示项左右跳动
+            if (field.text.empty() && min_width <= 0)
+                continue;
+            field.width = field_width(field.text, min_width);
+            break;
+        }
+        default:
+            continue;       //DisplayItem::Count不在任务栏上显示
+        }
+        fields.push_back(std::move(field));
+    }
+    return fields;
+}
+
 int CKeyboardIndicatorItem::GetItemWidthEx(void * hDC) const
 {
     //绘图句柄
@@ -121,59 +209,11 @@ int CKeyboardIndicatorItem::GetItemWidthEx(void * hDC) const
     if (ctx.font == nullptr)
         return 0;
     CFont* pOldFont = pDC->SelectObject(ctx.font);
+    //与DrawItem共用同一套区域计划：测量值即绘制实际消耗的宽度(每个区域宽度+区域间距)
+    const std::vector<FieldPlan> fields = PlanFields(pDC, ctx);
     int width = 0;
-    if (g_data.m_setting_data.show_caps_lock)
-        width += (pDC->GetTextExtent(INDICATOR_CAPS_LOCK).cx + ctx.item_space);
-    if (g_data.m_setting_data.show_num_lock)
-        width += (pDC->GetTextExtent(INDICATOR_NUM_LOCK).cx + ctx.item_space);
-    if (g_data.m_setting_data.show_scroll_lock)
-        width += (pDC->GetTextExtent(INDICATOR_SCROLL_LOCK).cx + ctx.item_space);
-    //主程序每隔1秒才重新计算一次显示区域的宽度，如果根据当前显示的按键文本计算宽度，
-    //按下的组合键变长时会因为宽度不足导致按键文本被旁边的项目遮挡约1秒，
-    //因此默认使用固定的预留宽度，保证任意按键按下时都能立即完整显示
-    if (g_data.m_setting_data.show_pressed_key)
-    {
-        if (g_data.m_setting_data.pressed_key_reserved_width > 0)
-        {
-            width += (g_data.m_setting_data.pressed_key_reserved_width * ctx.dpi / 96 + ctx.item_space);
-        }
-        else
-        {
-            //预留宽度为0时按当前显示的按键文本自适应
-            std::wstring pressed_key_text;
-            if (GetPressedKeyText(pressed_key_text))
-                width += (pDC->GetTextExtent(pressed_key_text.c_str()).cx + ctx.item_space);
-        }
-    }
-    //累计按键计数显示区
-    if (g_data.m_setting_data.enable_key_stats && g_data.m_setting_data.show_key_count)
-    {
-        if (g_data.m_setting_data.key_count_reserved_width > 0)
-        {
-            width += (g_data.m_setting_data.key_count_reserved_width * ctx.dpi / 96 + ctx.item_space);
-        }
-        else
-        {
-            //预留宽度为0时按当前计数文本自适应
-            std::wstring count_text;
-            if (GetKeyCountText(count_text))
-                width += (pDC->GetTextExtent(count_text.c_str()).cx + ctx.item_space);
-        }
-    }
-    //KPM显示区(独立于计数显示，两者都开时KPM在计数右侧)
-    if (g_data.m_setting_data.enable_key_stats && g_data.m_setting_data.show_kpm)
-    {
-        if (g_data.m_setting_data.kpm_reserved_width > 0)
-        {
-            width += (g_data.m_setting_data.kpm_reserved_width * ctx.dpi / 96 + ctx.item_space);
-        }
-        else
-        {
-            std::wstring kpm_text;
-            if (GetKpmText(kpm_text))
-                width += (pDC->GetTextExtent(kpm_text.c_str()).cx + ctx.item_space);
-        }
-    }
+    for (const FieldPlan& field : fields)
+        width += field.width + ctx.box_space;
     //恢复字体
     pDC->SelectObject(pOldFont);
     return width;
@@ -228,7 +268,11 @@ static void DrawRoundRectOutLine(CDC* pDC, CRect rect, COLORREF color, float pen
     graphics.DrawPath(&pen, &path);
 }
 
-static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool enable, COLORREF color_ori, int pen_width, int corner_radius, int spacing, int text_gap, int max_width = 0, COLORREF color_text_override = 0)
+//绘制一个指示器框。区域宽度由调用方按"配置的最小宽度/内容宽度"算好后传入，
+//这里不再自行改动宽度，保证绘制消耗与GetItemWidthEx的测量值一一对应
+static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_mode, bool active,
+    COLORREF color_ori, int pen_width, int corner_radius, int spacing, int box_width,
+    COLORREF color_custom = ITEM_COLOR_DEFAULT, COLORREF color_text_override = 0)
 {
     COLORREF color_default;
     COLORREF color_disable;
@@ -243,20 +287,37 @@ static void DrawIndicator(CDC* pDC, CRect& rect, const wchar_t* text, bool dark_
         color_disable = RGB(140, 140, 140);
     }
 
-    //外部指定的文本色优先(如每日目标达标时的绿色计数)，否则用原有明暗逻辑
-    COLORREF color_text = (color_text_override != 0) ? color_text_override : (enable ? color_ori : color_disable);
-    COLORREF color_frame = enable ? color_default : color_disable;
-    //根据文本宽度设置矩形的宽度
-    rect.right = rect.left + pDC->GetTextExtent(text).cx + text_gap;
-    //可用宽度不足时限制矩形宽度，文本超出部分显示为省略号，避免绘制到旁边的显示区域
-    if (max_width > 0 && rect.Width() > max_width)
-        rect.right = rect.left + max_width;
+    //未点亮(锁定键未开启、按键已松开)时用灰色，保持状态可辨；
+    //点亮时若配置了自定义颜色则文字与边框都用它，否则文字用主程序设置的颜色、边框用主题色
+    COLORREF color_text;
+    COLORREF color_frame;
+    if (!active)
+    {
+        color_text = color_disable;
+        color_frame = color_disable;
+    }
+    else if (color_custom != ITEM_COLOR_DEFAULT)
+    {
+        color_text = color_custom;
+        color_frame = color_custom;
+    }
+    else
+    {
+        color_text = color_ori;
+        color_frame = color_default;
+    }
+    //外部指定的状态提示色优先(如计数达到每日目标时的绿色)
+    if (color_text_override != 0)
+        color_text = color_text_override;
+    if (box_width < 1)
+        box_width = 1;
+    rect.right = rect.left + box_width;
     //绘制边框
     if (g_data.m_setting_data.draw_round_rect)
         DrawRoundRectOutLine(pDC, rect, color_frame, (float)pen_width, corner_radius);
     else
         DrawRectOutLine(pDC, rect, color_frame, pen_width);
-    //绘制文本
+    //绘制文本(文本宽度超过区域宽度时显示省略号)
     pDC->SetTextColor(color_text);
     pDC->DrawText(text, rect, DT_VCENTER | DT_CENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     //绘制完成后将矩形的左边框移动到右边框的位置
@@ -291,49 +352,32 @@ void CKeyboardIndicatorItem::DrawItem(void* hDC, int x, int y, int w, int h, boo
     CRect rect_indicator{ rect };
     rect_indicator.top += (rect.Height() - item_height) / 2;
     rect_indicator.bottom = rect_indicator.top + item_height;
-    //最先绘制累计按键计数(位于整个显示区的最左侧)，统计启用且开启显示时绘制；
-    //设定了每日目标且当日计数达标时，计数文字变绿色
-    std::wstring count_text;
-    if (GetKeyCountText(count_text))
+    //按用户配置的顺序绘制各显示区域(顺序、最小宽度、自定义颜色都在计划里)
+    const std::vector<FieldPlan> fields = PlanFields(pDC, ctx);
+    const int goal = g_data.m_setting_data.daily_goal;
+    const bool goal_reached = (goal > 0 && g_data.GetStatsToday() >= static_cast<unsigned long long>(goal));
+    for (const FieldPlan& field : fields)
     {
-        COLORREF count_color = 0;
-        const int goal = g_data.m_setting_data.daily_goal;
-        if (goal > 0 && g_data.GetStatsToday() >= static_cast<unsigned long long>(goal))
-            count_color = dark_mode ? RGB(80, 220, 100) : RGB(0, 150, 60);
-        //固定预留宽度模式下以预留宽度为计数框上限(计数在首位绘制，若按剩余区域计算
-        //上限则恒等于整项宽度，计数文本过长会把后续指示项推出边界)；自适应模式不设限
-        int max_count_width = 0;
-        if (g_data.m_setting_data.key_count_reserved_width > 0)
-            max_count_width = g_data.m_setting_data.key_count_reserved_width * ctx.dpi / 96;
-        DrawIndicator(pDC, rect_indicator, count_text.c_str(), dark_mode, TRUE, color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap, max_count_width, count_color);
-    }
-    //绘制当前KPM(计数右侧)，统计启用且开启KPM显示时绘制
-    std::wstring kpm_text;
-    if (GetKpmText(kpm_text))
-    {
-        int max_kpm_width = 0;
-        if (g_data.m_setting_data.kpm_reserved_width > 0)
-            max_kpm_width = g_data.m_setting_data.kpm_reserved_width * ctx.dpi / 96;
-        DrawIndicator(pDC, rect_indicator, kpm_text.c_str(), dark_mode, TRUE, color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap, max_kpm_width);
-    }
-    //绘制Caps Lock
-    if (g_data.m_setting_data.show_caps_lock)
-        DrawIndicator(pDC, rect_indicator, INDICATOR_CAPS_LOCK, dark_mode, CKeyboardIndicator::IsCapsLockOn(), color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap);
-    //绘制num lock
-    if (g_data.m_setting_data.show_num_lock)
-        DrawIndicator(pDC, rect_indicator, INDICATOR_NUM_LOCK, dark_mode, CKeyboardIndicator::IsNumLockOn(), color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap);
-    //绘制scroll lock
-    if (g_data.m_setting_data.show_scroll_lock)
-        DrawIndicator(pDC, rect_indicator, INDICATOR_SCROLL_LOCK, dark_mode, CKeyboardIndicator::IsScrollLockOn(), color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap);
-    //绘制当前按下的按键，有按键按住时高亮显示，松开后显示时长内以灰色显示
-    std::wstring pressed_key_text;
-    if (GetPressedKeyText(pressed_key_text))
-    {
-        //使用固定预留宽度时，限制按键框不超出本显示项的剩余区域
-        int max_key_width = 0;
-        if (g_data.m_setting_data.pressed_key_reserved_width > 0)
-            max_key_width = (x + w) - rect_indicator.left;
-        DrawIndicator(pDC, rect_indicator, pressed_key_text.c_str(), dark_mode, CKeyboardHook::Instance().IsAnyKeyDown(), color_ori, pen_width, corner_radius, ctx.box_space, ctx.text_gap, max_key_width);
+        //主程序分配的宽度可能小于测量值(配置刚改动、主程序尚未重算)，此时收缩到剩余区域，
+        //保证任何情况下都不会画到相邻显示项目上
+        const int remaining = (x + w) - rect_indicator.left;
+        if (remaining <= 0)
+            break;
+        int box_width = field.width;
+        if (box_width > remaining)
+            box_width = remaining;
+        if (field.text.empty())
+        {
+            //配置了最小宽度但当前没有内容可显示(如没有按键按下)：只占位不绘制
+            rect_indicator.MoveToX(rect_indicator.left + box_width + ctx.box_space);
+            continue;
+        }
+        //计数达到每日目标时用绿色文字提示(自定义颜色不覆盖这一状态提示)
+        COLORREF text_override = 0;
+        if (field.id == DisplayItem::KeyCount && goal_reached)
+            text_override = dark_mode ? RGB(80, 220, 100) : RGB(0, 150, 60);
+        DrawIndicator(pDC, rect_indicator, field.text.c_str(), dark_mode, field.active, color_ori,
+            pen_width, corner_radius, ctx.box_space, box_width, field.color, text_override);
     }
     //恢复字体
     pDC->SelectObject(old_font);

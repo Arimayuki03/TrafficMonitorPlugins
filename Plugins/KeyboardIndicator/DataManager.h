@@ -27,6 +27,23 @@ enum class StatsRange
     SingleDay = 4   //指定单日(配合GetStatsRankByDay使用)
 };
 
+//任务栏显示项目的标识。显示顺序与自定义颜色都以该标识为索引，
+//枚举值会写入INI持久化，新增项目只能追加在PressedKey之后
+enum class DisplayItem
+{
+    CapsLock = 0,       //Caps Lock 指示
+    NumLock = 1,        //Num Lock 指示
+    ScrollLock = 2,     //Scroll Lock 指示
+    KeyCount = 3,       //累计按键计数
+    Kpm = 4,            //当前打字速度
+    PressedKey = 5,     //实时按下的按键
+    Count = 6           //项目总数(不是有效项目)
+};
+
+constexpr int DISPLAY_ITEM_COUNT = static_cast<int>(DisplayItem::Count);
+//自定义颜色未配置时的哨兵值：跟随主程序设置的颜色与明暗主题色
+constexpr COLORREF ITEM_COLOR_DEFAULT = 0xFFFFFFFF;
+
 struct SettingData
 {
     bool show_caps_lock{ true };
@@ -35,13 +52,26 @@ struct SettingData
     bool draw_round_rect{ false };  //是否使用圆角矩形
     bool show_pressed_key{ true };  //是否实时显示当前按下的按键
     int pressed_key_show_time{ 1000 };  //按键松开后继续显示的时长(毫秒)
-    int pressed_key_reserved_width{ 90 };   //按键显示区预留宽度(96DPI下的逻辑像素)，主程序每隔1秒才重新计算显示区域宽度，固定预留宽度可以保证按键按下时立即完整显示，0为按内容自适应
+    //以下三个"宽度"都是该显示区域的最小宽度(96DPI下的逻辑像素)：
+    //区域至少保持这个宽度(任务栏宽度不会随内容长短抖动)，内容更长时自动扩展，0为完全按内容自适应。
+    //按键区保留默认值可以保证按键按下时立即完整显示(主程序每隔1秒才重新计算显示区域宽度)
+    int pressed_key_reserved_width{ 90 };   //按键显示区最小宽度
     std::atomic<bool> enable_key_stats{ false };    //是否启用按键统计(UI线程写、监控线程读)
     bool show_key_count{ true };        //是否在任务栏显示累计按键计数(仅在启用统计时有效)
-    int key_count_reserved_width{ 60 }; //计数显示区预留宽度(96DPI下的逻辑像素)，0为按内容自适应
+    int key_count_reserved_width{ 60 }; //计数显示区最小宽度
     int daily_goal{ 0 };                //每日按键数目标，达到后任务栏计数变绿色，0为不启用
     bool show_kpm{ false };             //是否在任务栏计数右侧显示当前KPM(仅在启用统计与计数显示时有效)
-    int kpm_reserved_width{ 70 };       //KPM显示区预留宽度(96DPI下的逻辑像素)，0为按内容自适应
+    int kpm_reserved_width{ 70 };       //KPM显示区最小宽度
+    //任务栏显示项自左向右的顺序(元素为DisplayItem)，下标0为最左。
+    //默认顺序与历史版本的绘制顺序一致，保证升级后外观不变
+    int item_order[DISPLAY_ITEM_COUNT]{
+        static_cast<int>(DisplayItem::KeyCount), static_cast<int>(DisplayItem::Kpm),
+        static_cast<int>(DisplayItem::CapsLock), static_cast<int>(DisplayItem::NumLock),
+        static_cast<int>(DisplayItem::ScrollLock), static_cast<int>(DisplayItem::PressedKey) };
+    //各显示项目的自定义颜色(下标为DisplayItem)，ITEM_COLOR_DEFAULT表示跟随主程序颜色
+    COLORREF item_colors[DISPLAY_ITEM_COUNT]{
+        ITEM_COLOR_DEFAULT, ITEM_COLOR_DEFAULT, ITEM_COLOR_DEFAULT,
+        ITEM_COLOR_DEFAULT, ITEM_COLOR_DEFAULT, ITEM_COLOR_DEFAULT };
 
     //含atomic成员时隐式拷贝赋值被删除；设置对话框整体替换配置需要拷贝赋值，
     //用atomic的store显式实现(字段固定，新增字段时需同步维护)
@@ -62,6 +92,11 @@ struct SettingData
             daily_goal = other.daily_goal;
             show_kpm = other.show_kpm;
             kpm_reserved_width = other.kpm_reserved_width;
+            for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+            {
+                item_order[i] = other.item_order[i];
+                item_colors[i] = other.item_colors[i];
+            }
         }
         return *this;
     }
@@ -81,6 +116,8 @@ public:
     const CString& StringRes(UINT id);      //根据资源id获取一个字符串资源
     int DPI(int pixel);
     HICON GetIcon(UINT id);
+    //获取显示项目的名称(资源字符串)，供设置界面的顺序/颜色列表显示
+    const CString& DisplayItemName(DisplayItem item);
 
     SettingData m_setting_data;
 

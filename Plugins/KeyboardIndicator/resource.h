@@ -31,12 +31,30 @@
 #define IDS_STATS_EXPORT                127
 #define IDS_TODAY_TAG                   128
 #define IDS_KPM_FMT                     129
+#define IDD_DISPLAY_ITEMS_PAGE          130
+#define IDS_PAGE_ITEMS                  131
+#define IDS_ITEM_CAPS_LOCK              132
+#define IDS_ITEM_NUM_LOCK               133
+#define IDS_ITEM_SCROLL_LOCK            134
+#define IDS_ITEM_KEY_COUNT              135
+#define IDS_ITEM_KPM                    136
+#define IDS_ITEM_PRESSED_KEY            137
+#define IDS_ORDER_COL_ITEM              138
+#define IDS_ORDER_COL_COLOR             139
+#define IDS_ORDER_HIDDEN_TAG            140
+#define IDS_COLOR_DEFAULT               141
+#define IDS_COLOR_DLG_TITLE             142
 #define IDC_MAIN_TAB                    1015
 #define IDC_STATS_RANGE_COMBO           1016
 #define IDC_STATS_REFRESH_BUTTON        1017
 #define IDC_DAILY_GOAL_EDIT             1018
 #define IDC_SHOW_KPM_CHECK              1024
 #define IDC_KPM_RESERVED_EDIT           1025
+#define IDC_ITEM_ORDER_LIST             1026
+#define IDC_ITEM_ORDER_UP_BUTTON        1027
+#define IDC_ITEM_ORDER_DOWN_BUTTON      1028
+#define IDC_ITEM_COLOR_BUTTON           1029
+#define IDC_ITEM_COLOR_RESET_BUTTON     1030
 #define IDC_EXPORT_CSV_BUTTON           1019
 #define IDC_KEYBOARD_MAP_CTRL           1020
 #define IDC_CHART_CTRL                  1021
@@ -60,9 +78,9 @@
 //
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        130
+#define _APS_NEXT_RESOURCE_VALUE        143
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1024
+#define _APS_NEXT_CONTROL_VALUE         1031
 #define _APS_NEXT_SYMED_VALUE           103
 #endif
 #endif

@@ -3,6 +3,7 @@
 #include "afxdialogex.h"
 #include "DataManager.h"
 #include "KeyboardHook.h"
+#include <afxdlgs.h>    //CColorDialog(显示项自定义颜色的取色对话框)
 #include <commdlg.h>
 
 // COptionsDlg 对话框
@@ -16,6 +17,7 @@ namespace
     //主页签索引
     const int MAIN_TAB_DISPLAY = 0;
     const int MAIN_TAB_STATS = 1;
+    const int MAIN_TAB_ITEMS = 2;
     //统计页内页签索引
     const int STATS_TAB_RANK = 0;
     const int STATS_TAB_HISTORY = 1;
@@ -310,6 +312,72 @@ namespace
             return CKeyboardHook::GetKeyName(vk, 0, false);
         }
     }
+
+    //显示项列表的列宽：颜色列按内容固定，项目列吃掉剩余宽度(算法与排行表一致：测量+反算+回读校验)
+    void LayoutItemOrderColumns(CListCtrl* pList)
+    {
+        if (pList == nullptr)
+            return;
+        const int dpi = ListDpi(pList);
+        const int pad = 24;         //表头文字两侧余量，避免出现省略号
+        int t_color = MeasureTextWidth(pList, L"#FFFFFF") + pad;
+        const int t_color_head = MeasureTextWidth(pList, g_data.StringRes(IDS_ORDER_COL_COLOR));
+        if (t_color_head + pad > t_color)
+            t_color = t_color_head + pad;
+        if (t_color <= 0)
+            t_color = 76 * dpi / 96;
+        const int avail = ListAvailWidth(pList, dpi);
+        int t_item = avail - t_color;
+        if (t_item < 90)
+            t_item = 90;
+        const double k = ProbeColumnScale(pList);
+        pList->SetColumnWidth(0, static_cast<int>(t_item / k + 0.5));
+        pList->SetColumnWidth(1, static_cast<int>(t_color / k + 0.5));
+        for (int i = 0; i < 3; ++i)
+        {
+            const int total = pList->GetColumnWidth(0) + pList->GetColumnWidth(1);
+            if (total <= avail)
+                break;
+            int item_now = pList->GetColumnWidth(0) - (total - avail) - 4;
+            if (item_now < 60)
+                item_now = 60;
+            pList->SetColumnWidth(0, static_cast<int>(item_now / k + 0.5));
+        }
+    }
+
+    //该项目当前是否会在任务栏上显示(用于"显示项"列表里的"已隐藏"标记)
+    bool IsDisplayItemVisible(const SettingData& data, DisplayItem item)
+    {
+        switch (item)
+        {
+        case DisplayItem::CapsLock:     return data.show_caps_lock;
+        case DisplayItem::NumLock:      return data.show_num_lock;
+        case DisplayItem::ScrollLock:   return data.show_scroll_lock;
+        case DisplayItem::KeyCount:     return data.enable_key_stats && data.show_key_count;
+        case DisplayItem::Kpm:          return data.enable_key_stats && data.show_kpm;
+        case DisplayItem::PressedKey:   return data.show_pressed_key;
+        default:                        return false;
+        }
+    }
+
+    //取色对话框。CColorDialog的m_cc没有标题字段(标题由系统本地化提供)，
+    //这里派生一层，在初始化后套用插件资源里的标题
+    class CItemColorDialog : public CColorDialog
+    {
+    public:
+        CItemColorDialog(COLORREF init_color, CWnd* parent)
+            : CColorDialog(init_color, CC_FULLOPEN | CC_ANYCOLOR, parent)
+        {
+        }
+
+    protected:
+        BOOL OnInitDialog() override
+        {
+            const BOOL result = CColorDialog::OnInitDialog();
+            SetWindowText(g_data.StringRes(IDS_COLOR_DLG_TITLE));
+            return result;
+        }
+    };
 }
 
 // CStatsPageDlg：统计页子对话框，接收owner-draw控件的WM_DRAWITEM并委托主对话框绘制
@@ -410,6 +478,10 @@ BEGIN_MESSAGE_MAP(COptionsDlg, CDialog)
     ON_CBN_SELCHANGE(IDC_STATS_RANGE_COMBO, &COptionsDlg::OnStatsRangeChanged)
     ON_BN_CLICKED(IDC_STATS_REFRESH_BUTTON, &COptionsDlg::OnRefreshStats)
     ON_BN_CLICKED(IDC_EXPORT_CSV_BUTTON, &COptionsDlg::OnExportCsv)
+    ON_BN_CLICKED(IDC_ITEM_ORDER_UP_BUTTON, &COptionsDlg::OnItemOrderUp)
+    ON_BN_CLICKED(IDC_ITEM_ORDER_DOWN_BUTTON, &COptionsDlg::OnItemOrderDown)
+    ON_BN_CLICKED(IDC_ITEM_COLOR_BUTTON, &COptionsDlg::OnItemSetColor)
+    ON_BN_CLICKED(IDC_ITEM_COLOR_RESET_BUTTON, &COptionsDlg::OnItemResetColor)
 END_MESSAGE_MAP()
 
 
@@ -427,11 +499,14 @@ BOOL COptionsDlg::OnInitDialog()
     {
         pMainTab->InsertItem(MAIN_TAB_DISPLAY, g_data.StringRes(IDS_PAGE_DISPLAY));
         pMainTab->InsertItem(MAIN_TAB_STATS, g_data.StringRes(IDS_PAGE_STATS));
+        pMainTab->InsertItem(MAIN_TAB_ITEMS, g_data.StringRes(IDS_PAGE_ITEMS));
     }
     m_display_page.reset(CreateSubPage(IDD_DISPLAY_PAGE, false));
     m_stats_page.reset(CreateSubPage(IDD_STATS_PAGE, true));
+    m_items_page.reset(CreateSubPage(IDD_DISPLAY_ITEMS_PAGE, false));
     PlacePageInTab(m_display_page.get(), pMainTab);
     PlacePageInTab(m_stats_page.get(), pMainTab);
+    PlacePageInTab(m_items_page.get(), pMainTab);
 
     //初始化"显示设置"页控件
     CWnd* pDisplay = m_display_page.get();
@@ -449,6 +524,20 @@ BOOL COptionsDlg::OnInitDialog()
         //KPM开关与宽度(此前漏了初始化，导致打开对话框永远是未勾选、确定即被写回false)
         pDisplay->CheckDlgButton(IDC_SHOW_KPM_CHECK, m_data.show_kpm);
         pDisplay->SetDlgItemInt(IDC_KPM_RESERVED_EDIT, m_data.kpm_reserved_width, TRUE);
+    }
+
+    //初始化"显示项"页：显示顺序与颜色列表
+    CWnd* pItems = m_items_page.get();
+    if (pItems != nullptr)
+    {
+        CListCtrl* pOrderList = (CListCtrl*)pItems->GetDlgItem(IDC_ITEM_ORDER_LIST);
+        if (pOrderList != nullptr)
+        {
+            pOrderList->SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+            pOrderList->InsertColumn(0, g_data.StringRes(IDS_ORDER_COL_ITEM), LVCFMT_LEFT, 120);
+            pOrderList->InsertColumn(1, g_data.StringRes(IDS_ORDER_COL_COLOR), LVCFMT_LEFT, 76);
+        }
+        RefreshItemOrderList();
     }
 
     //初始化"按键统计"页：页签、筛选下拉框、键位覆盖图、两张列表、柱状图
@@ -557,6 +646,51 @@ BOOL COptionsDlg::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
                 }
             }
         }
+        //"显示项"列表
+        if (header->idFrom == IDC_ITEM_ORDER_LIST)
+        {
+            //选中行变化：更新上移/下移/颜色等按钮的可用状态
+            if (header->code == LVN_ITEMCHANGED)
+            {
+                UpdateItemButtons();
+                return TRUE;
+            }
+            //双击一行直接打开取色对话框
+            if (header->code == NM_DBLCLK)
+            {
+                OnItemSetColor();
+                return TRUE;
+            }
+            //项目名一列用该项目的当前颜色绘制，直接看到配色效果
+            if (header->code == NM_CUSTOMDRAW)
+            {
+                LPNMLVCUSTOMDRAW custom_draw = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
+                if (custom_draw->nmcd.dwDrawStage == CDDS_PREPAINT)
+                {
+                    *pResult = CDRF_NOTIFYITEMDRAW;
+                    return TRUE;
+                }
+                if (custom_draw->nmcd.dwDrawStage == (CDDS_ITEM | CDDS_PREPAINT))
+                {
+                    *pResult = CDRF_NOTIFYSUBITEMDRAW;
+                    return TRUE;
+                }
+                if (custom_draw->nmcd.dwDrawStage == (CDDS_ITEM | CDDS_SUBITEM | CDDS_PREPAINT))
+                {
+                    const int item_index = static_cast<int>(custom_draw->nmcd.lItemlParam);
+                    if (custom_draw->iSubItem == 0
+                        && item_index >= 0 && item_index < DISPLAY_ITEM_COUNT
+                        && m_data.item_colors[item_index] != ITEM_COLOR_DEFAULT)
+                    {
+                        custom_draw->clrText = m_data.item_colors[item_index];
+                    }
+                    *pResult = CDRF_DODEFAULT;
+                    return TRUE;
+                }
+                *pResult = CDRF_DODEFAULT;
+                return TRUE;
+            }
+        }
     }
     return CDialog::OnNotify(wParam, lParam, pResult);
 }
@@ -572,6 +706,15 @@ void COptionsDlg::SwitchMainTab()
         m_display_page->ShowWindow(sel == MAIN_TAB_DISPLAY ? SW_SHOW : SW_HIDE);
     if (m_stats_page != nullptr)
         m_stats_page->ShowWindow(sel == MAIN_TAB_STATS ? SW_SHOW : SW_HIDE);
+    if (m_items_page != nullptr)
+        m_items_page->ShowWindow(sel == MAIN_TAB_ITEMS ? SW_SHOW : SW_HIDE);
+    //切到"显示项"页时先同步"显示设置"页的勾选状态，再刷新列表，
+    //这样"已隐藏"标记与颜色/顺序都是最新的
+    if (sel == MAIN_TAB_ITEMS)
+    {
+        ReadDisplayPageSettings();
+        RefreshItemOrderList();
+    }
 }
 
 void COptionsDlg::SwitchStatsTab()
@@ -848,6 +991,156 @@ void COptionsDlg::ReadDisplayPageSettings()
     if (kpm_width > 300)
         kpm_width = 300;
     m_data.kpm_reserved_width = kpm_width;
+}
+
+void COptionsDlg::RefreshItemOrderList()
+{
+    //按m_data里的顺序与颜色重建"显示项"列表；选中行按项目标识恢复，
+    //这样上移/下移后选中状态仍停在被移动的项目上
+    CWnd* pItems = m_items_page.get();
+    CListCtrl* pList = (pItems != nullptr) ? (CListCtrl*)pItems->GetDlgItem(IDC_ITEM_ORDER_LIST) : nullptr;
+    if (pList == nullptr)
+        return;
+    const DisplayItem selected = SelectedDisplayItem();
+    //每次刷新前重算列宽(此时列表已处最终尺寸，可保证不触发横向滚动条)
+    LayoutItemOrderColumns(pList);
+    pList->SetRedraw(FALSE);
+    pList->DeleteAllItems();
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        const int item_index = m_data.item_order[i];
+        if (item_index < 0 || item_index >= DISPLAY_ITEM_COUNT)
+            continue;
+        const DisplayItem item = static_cast<DisplayItem>(item_index);
+        //名称后标注"已隐藏"，让顺序列表本身也能看出哪些项目当前不在任务栏显示
+        std::wstring text = g_data.DisplayItemName(item).GetString();
+        if (!IsDisplayItemVisible(m_data, item))
+            text += g_data.StringRes(IDS_ORDER_HIDDEN_TAG).GetString();
+        const int row = pList->InsertItem(pList->GetItemCount(), text.c_str());
+        pList->SetItemData(row, static_cast<DWORD_PTR>(item_index));
+        const COLORREF color = m_data.item_colors[item_index];
+        wchar_t color_buff[16];
+        if (color != ITEM_COLOR_DEFAULT)
+        {
+            swprintf_s(color_buff, L"#%02X%02X%02X", GetRValue(color), GetGValue(color), GetBValue(color));
+            pList->SetItemText(row, 1, color_buff);
+        }
+        else
+        {
+            pList->SetItemText(row, 1, g_data.StringRes(IDS_COLOR_DEFAULT));
+        }
+        if (item == selected)
+        {
+            pList->SetItemState(row, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            pList->EnsureVisible(row, FALSE);
+        }
+    }
+    pList->SetRedraw(TRUE);
+    pList->Invalidate();
+    UpdateItemButtons();
+}
+
+DisplayItem COptionsDlg::SelectedDisplayItem() const
+{
+    CWnd* pItems = m_items_page.get();
+    CListCtrl* pList = (pItems != nullptr) ? (CListCtrl*)pItems->GetDlgItem(IDC_ITEM_ORDER_LIST) : nullptr;
+    if (pList == nullptr)
+        return DisplayItem::Count;
+    const POSITION pos = pList->GetFirstSelectedItemPosition();
+    if (pos == nullptr)
+        return DisplayItem::Count;
+    POSITION cursor = pos;
+    const int row = pList->GetNextSelectedItem(cursor);
+    if (row < 0)
+        return DisplayItem::Count;
+    const int item_index = static_cast<int>(pList->GetItemData(row));
+    if (item_index < 0 || item_index >= DISPLAY_ITEM_COUNT)
+        return DisplayItem::Count;
+    return static_cast<DisplayItem>(item_index);
+}
+
+void COptionsDlg::UpdateItemButtons()
+{
+    CWnd* pItems = m_items_page.get();
+    if (pItems == nullptr)
+        return;
+    const DisplayItem selected = SelectedDisplayItem();
+    //先求选中项目在顺序表中的位置(未选中时为-1)
+    int pos = -1;
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        if (m_data.item_order[i] == static_cast<int>(selected))
+        {
+            pos = i;
+            break;
+        }
+    }
+    const bool has_selection = (pos >= 0);
+    CWnd* pUp = pItems->GetDlgItem(IDC_ITEM_ORDER_UP_BUTTON);
+    CWnd* pDown = pItems->GetDlgItem(IDC_ITEM_ORDER_DOWN_BUTTON);
+    CWnd* pColor = pItems->GetDlgItem(IDC_ITEM_COLOR_BUTTON);
+    CWnd* pReset = pItems->GetDlgItem(IDC_ITEM_COLOR_RESET_BUTTON);
+    if (pUp != nullptr)
+        pUp->EnableWindow(has_selection && pos > 0);
+    if (pDown != nullptr)
+        pDown->EnableWindow(has_selection && pos + 1 < DISPLAY_ITEM_COUNT);
+    if (pColor != nullptr)
+        pColor->EnableWindow(has_selection);
+    //只有配置了自定义颜色时才允许"恢复默认色"
+    if (pReset != nullptr)
+        pReset->EnableWindow(has_selection && m_data.item_colors[static_cast<int>(selected)] != ITEM_COLOR_DEFAULT);
+}
+
+void COptionsDlg::MoveSelectedItem(int offset)
+{
+    const DisplayItem selected = SelectedDisplayItem();
+    if (selected == DisplayItem::Count)
+        return;
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        if (m_data.item_order[i] != static_cast<int>(selected))
+            continue;
+        const int target = i + offset;
+        if (target < 0 || target >= DISPLAY_ITEM_COUNT)
+            return;
+        std::swap(m_data.item_order[i], m_data.item_order[target]);
+        break;
+    }
+    RefreshItemOrderList();
+}
+
+void COptionsDlg::OnItemOrderUp()
+{
+    MoveSelectedItem(-1);
+}
+
+void COptionsDlg::OnItemOrderDown()
+{
+    MoveSelectedItem(1);
+}
+
+void COptionsDlg::OnItemSetColor()
+{
+    const DisplayItem item = SelectedDisplayItem();
+    if (item == DisplayItem::Count)
+        return;
+    const int index = static_cast<int>(item);
+    const COLORREF init_color = (m_data.item_colors[index] != ITEM_COLOR_DEFAULT)
+        ? m_data.item_colors[index] : RGB(0, 0, 0);
+    CItemColorDialog dlg(init_color, this);
+    if (dlg.DoModal() != IDOK)
+        return;
+    m_data.item_colors[index] = dlg.GetColor();
+    RefreshItemOrderList();
+}
+
+void COptionsDlg::OnItemResetColor()
+{
+    const DisplayItem item = SelectedDisplayItem();
+    if (item == DisplayItem::Count)
+        return;
+    m_data.item_colors[static_cast<int>(item)] = ITEM_COLOR_DEFAULT;
+    RefreshItemOrderList();
 }
 
 void COptionsDlg::OnOK()

@@ -17,6 +17,16 @@ namespace
     const int MAX_HISTORY_DAYS = 90;
     //统计数据落盘的最小间隔(毫秒)，避免持续按键时每秒全量写INI；退出时仍会兜底保存
     const ULONGLONG MIN_SAVE_INTERVAL_MS = 5000;
+    //显示项目顺序的INI键，值形如"3,4,0,1,2,5"
+    const wchar_t ITEM_ORDER_KEY[] = L"item_order";
+    //各显示项目自定义颜色的INI键(下标为DisplayItem)，值为十六进制RRGGBB，空表示跟随默认
+    const wchar_t* ITEM_COLOR_KEYS[DISPLAY_ITEM_COUNT] = {
+        L"item_color_caps_lock", L"item_color_num_lock", L"item_color_scroll_lock",
+        L"item_color_key_count", L"item_color_kpm", L"item_color_pressed_key" };
+    //显示项目名称的资源id(下标为DisplayItem)
+    const UINT ITEM_NAME_IDS[DISPLAY_ITEM_COUNT] = {
+        IDS_ITEM_CAPS_LOCK, IDS_ITEM_NUM_LOCK, IDS_ITEM_SCROLL_LOCK,
+        IDS_ITEM_KEY_COUNT, IDS_ITEM_KPM, IDS_ITEM_PRESSED_KEY };
 
     //获取当前日期的yyyy-MM-dd文本
     std::wstring GetTodayString()
@@ -47,6 +57,34 @@ namespace
     bool ReadProfileString(const wchar_t* app_name, const wchar_t* key_name, wchar_t* buff, DWORD buff_size, const wchar_t* file_path)
     {
         return GetPrivateProfileStringW(app_name, key_name, L"", buff, buff_size, file_path) > 0;
+    }
+
+    //解析显示项顺序字符串(形如"3,4,0,1,2,5")：必须恰好是全部显示项目的一个排列，
+    //否则返回false由调用方回退默认顺序(异常配置不能让某些项目丢失或被画两次)
+    bool ParseItemOrder(const wchar_t* text, int order[DISPLAY_ITEM_COUNT])
+    {
+        if (text == nullptr || *text == L'\0')
+            return false;
+        bool used[DISPLAY_ITEM_COUNT] = {};
+        const wchar_t* p = text;
+        for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+        {
+            wchar_t* end = nullptr;
+            long value = wcstol(p, &end, 10);
+            if (end == p || value < 0 || value >= DISPLAY_ITEM_COUNT || used[value])
+                return false;
+            used[value] = true;
+            order[i] = static_cast<int>(value);
+            p = end;
+            //项目之间恰好一个逗号分隔，最后一个项目之后必须立即结束
+            if (i < DISPLAY_ITEM_COUNT - 1)
+            {
+                if (*p != L',')
+                    return false;
+                ++p;
+            }
+        }
+        return *p == L'\0';
     }
 
     //按键名缓存：虚拟键码->按键名，避免每次重建明细缓存时重复调用GetKeyNameTextW
@@ -165,6 +203,29 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     if (kpm_width > 300)
         kpm_width = 300;
     m_setting_data.kpm_reserved_width = kpm_width;
+    //显示项顺序：必须是全部显示项目的一个排列，否则回退默认顺序
+    {
+        const SettingData default_order;
+        wchar_t order_buff[128] = {};
+        int order[DISPLAY_ITEM_COUNT] = {};
+        const bool ok = ReadProfileString(L"config", ITEM_ORDER_KEY, order_buff, _countof(order_buff), m_config_path.c_str())
+            && ParseItemOrder(order_buff, order);
+        for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+            m_setting_data.item_order[i] = ok ? order[i] : default_order.item_order[i];
+    }
+    //各显示项自定义颜色：十六进制RRGGBB，空值或非法值一律回退为跟随默认颜色
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        wchar_t color_buff[32] = {};
+        m_setting_data.item_colors[i] = ITEM_COLOR_DEFAULT;
+        if (!ReadProfileString(L"config", ITEM_COLOR_KEYS[i], color_buff, _countof(color_buff), m_config_path.c_str()))
+            continue;
+        wchar_t* end = nullptr;
+        const bool negative = (color_buff[0] == L'-');
+        unsigned long value = wcstoul(color_buff, &end, 16);
+        if (!negative && end != color_buff && *end == L'\0' && value <= 0xFFFFFF)
+            m_setting_data.item_colors[i] = static_cast<COLORREF>(value);
+    }
     //加载持久化的统计数据
     LoadStatsData();
 }
@@ -187,6 +248,27 @@ void CDataManager::SaveConfig()
     WritePrivateProfileInt(L"config", L"daily_goal", m_setting_data.daily_goal, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_kpm", m_setting_data.show_kpm ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"kpm_reserved_width", m_setting_data.kpm_reserved_width, m_config_path.c_str());
+    //显示项顺序：逗号分隔的DisplayItem列表
+    {
+        std::wstring order_text;
+        for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+        {
+            wchar_t buff[8];
+            swprintf_s(buff, L"%d", m_setting_data.item_order[i]);
+            if (!order_text.empty())
+                order_text += L',';
+            order_text += buff;
+        }
+        WritePrivateProfileStringW(L"config", ITEM_ORDER_KEY, order_text.c_str(), m_config_path.c_str());
+    }
+    //各显示项自定义颜色：十六进制RRGGBB，跟随默认颜色时写空值
+    for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
+    {
+        wchar_t color_buff[16] = {};
+        if (m_setting_data.item_colors[i] != ITEM_COLOR_DEFAULT)
+            swprintf_s(color_buff, L"%06X", static_cast<unsigned>(m_setting_data.item_colors[i]) & 0xFFFFFFu);
+        WritePrivateProfileStringW(L"config", ITEM_COLOR_KEYS[i], color_buff, m_config_path.c_str());
+    }
     //保存统计数据
     SaveStatsData();
 }
@@ -209,6 +291,14 @@ const CString& CDataManager::StringRes(UINT id)
 int CDataManager::DPI(int pixel)
 {
     return m_dpi * pixel / 96;
+}
+
+const CString& CDataManager::DisplayItemName(DisplayItem item)
+{
+    const int index = static_cast<int>(item);
+    if (index < 0 || index >= DISPLAY_ITEM_COUNT)
+        return StringRes(IDS_PLUGIN_ITEM_NAME);
+    return StringRes(ITEM_NAME_IDS[index]);
 }
 
 HICON CDataManager::GetIcon(UINT id)

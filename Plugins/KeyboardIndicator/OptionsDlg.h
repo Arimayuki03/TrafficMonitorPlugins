@@ -53,6 +53,14 @@ private:
     void ApplyStatsEnabled();
     //读取"显示设置"页的全部设置到m_data
     void ReadDisplayPageSettings();
+    //按m_data刷新"显示项"页的列表(顺序、名称、隐藏标记与颜色)
+    void RefreshItemOrderList();
+    //取"显示项"列表当前选中的显示项目(未选中时返回DisplayItem::Count)
+    DisplayItem SelectedDisplayItem() const;
+    //按选中行位置与颜色设置更新"显示项"页各按钮的可用状态
+    void UpdateItemButtons();
+    //把选中项在显示顺序中上移/下移一格
+    void MoveSelectedItem(int offset);
 
 public:
     //键位覆盖图绘制(60%透明的小键盘布局，按过的键高亮)，由统计页owner-draw回调
@@ -65,9 +73,10 @@ private:
     bool m_single_day_mode{ false };
     std::wstring m_single_day_date;         //单日跳转选中的日期
 
-    //显示设置子页面与按键统计子页面
+    //显示设置子页面、按键统计子页面与显示项(顺序/颜色)子页面
     std::unique_ptr<CDialog> m_display_page;
     std::unique_ptr<CDialog> m_stats_page;
+    std::unique_ptr<CDialog> m_items_page;
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持
@@ -87,4 +96,8 @@ public:
     afx_msg void OnStatsRangeChanged();
     afx_msg void OnRefreshStats();
     afx_msg void OnExportCsv();
+    afx_msg void OnItemOrderUp();
+    afx_msg void OnItemOrderDown();
+    afx_msg void OnItemSetColor();
+    afx_msg void OnItemResetColor();
 };
