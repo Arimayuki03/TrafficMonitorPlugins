@@ -360,6 +360,18 @@ namespace
         }
     }
 
+    //判断颜色在给定背景色上是否清晰可辨(用亮度差近似对比度)。
+    //自定义颜色可能是白色一类的浅色或与背景近似的颜色，直接用作列表文字色会与背景同色而看不见
+    bool IsColorVisibleOnBackground(COLORREF color, COLORREF background)
+    {
+        auto luminance = [](COLORREF value) {
+            return (GetRValue(value) * 299 + GetGValue(value) * 587 + GetBValue(value) * 114) / 1000;
+        };
+        const int diff = luminance(color) - luminance(background);
+        //亮度差不足约 23% 时认为难以辨认，此时改用系统默认文字色
+        return diff >= 60 || diff <= -60;
+    }
+
     //取色对话框。CColorDialog的m_cc没有标题字段(标题由系统本地化提供)，
     //这里派生一层，在初始化后套用插件资源里的标题
     class CItemColorDialog : public CColorDialog
@@ -679,9 +691,19 @@ BOOL COptionsDlg::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
                 if (custom_draw->nmcd.dwDrawStage == (CDDS_ITEM | CDDS_SUBITEM | CDDS_PREPAINT))
                 {
                     const int item_index = static_cast<int>(custom_draw->nmcd.lItemlParam);
-                    if (custom_draw->iSubItem == 0
+                    //用该显示项的颜色预览(名称列与颜色列都用它)，以下两种情况例外：
+                    //①颜色与列表背景过近(如白色)——套用后文字与背景同色会看不见；
+                    //②该行处于选中状态——系统会用高亮背景绘制，自定义颜色可能与高亮背景同色。
+                    //选中状态必须向控件查询：本列表(带LVS_SHOWSELALWAYS)的nmcd.uItemState在所有行上
+                    //都会带上CDIS_SELECTED位，用它判断会把整张表的颜色预览全部误判为"已选中"而失效
+                    const int row = static_cast<int>(custom_draw->nmcd.dwItemSpec);
+                    const bool selected = (row >= 0)
+                        && (::SendMessageW(custom_draw->nmcd.hdr.hwndFrom, LVM_GETITEMSTATE,
+                            static_cast<WPARAM>(row), LVIS_SELECTED) & LVIS_SELECTED) != 0;
+                    if (!selected
                         && item_index >= 0 && item_index < DISPLAY_ITEM_COUNT
-                        && m_data.item_colors[item_index] != ITEM_COLOR_DEFAULT)
+                        && m_data.item_colors[item_index] != ITEM_COLOR_DEFAULT
+                        && IsColorVisibleOnBackground(m_data.item_colors[item_index], GetSysColor(COLOR_WINDOW)))
                     {
                         custom_draw->clrText = m_data.item_colors[item_index];
                     }

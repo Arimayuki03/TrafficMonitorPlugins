@@ -215,7 +215,7 @@
 
 一个用于显示键盘Caps Lock、Num Lock、Scroll Lock等状态的插件。
 
-本仓库版本（V1.12）在原版基础上进行了功能增强：
+本仓库版本（V1.13）在原版基础上进行了功能增强：
 
 * **实时按键显示**：任务栏可实时显示当前按下的按键组合（如 `Ctrl+Shift+A`），按住时高亮显示；松开后可在设定时长内以灰色继续显示，避免快速敲击时看不到按键内容。
 * **按键统计**：可选开启，统计每个按键的累计按下次数与总按键数（自动重复与注入按键不计入），任务栏可显示累计计数与当前打字速度 KPM（60 秒滑动窗口）；统计页提供按键排行（今日 / 近7天 / 近30天 / 全部）、键位覆盖图与每日统计柱状图，支持导出 CSV 与清零统计。
@@ -223,7 +223,7 @@
 * **区域最小宽度**：按键区 / 计数区 / KPM 区可设置最小宽度（任务栏宽度不随内容长短抖动，内容更长时自动扩展，0 表示按内容自适应）；V1.12 修复了此前"设置宽度无效"的问题。
 * **DPI 自适应**，设置界面采用分页式设计。
 
-* 版本：V1.12
+* 版本：V1.13
 
 * 下载链接：
 
@@ -231,7 +231,7 @@
 
   Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00)（原版）
 
-  本仓库版（V1.12，功能增强）：[Release KeyboardIndicator_V1.12 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.12)
+  本仓库版（V1.13，功能增强）：[Release KeyboardIndicator_V1.13 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.13)
 
 
 

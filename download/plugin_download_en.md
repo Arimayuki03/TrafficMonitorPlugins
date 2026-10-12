@@ -203,7 +203,7 @@ A TrafficMonitor plugin to support writing plugin by lua script.
 
 A plugin used to display the status of keys such as Caps Lock, Num Lock, and Scroll Lock on the keyboard.
 
-The version in this repository (V1.12) is enhanced based on the original one:
+The version in this repository (V1.13) is enhanced based on the original one:
 
 * **Real-time key display**: The currently pressed key combination (e.g., `Ctrl+Shift+A`) is shown on the taskbar in real time and highlighted while held; it can remain visible in gray for a configurable duration after release.
 * **Key statistics**: Optional per-key and total key-press counting (auto-repeat and injected keys are excluded). The taskbar can show the total count and the current typing speed (KPM, 60-second sliding window); the statistics page provides a key ranking (today / last 7 days / last 30 days / all time), a keyboard coverage map and a daily chart, with CSV export and reset.
@@ -211,7 +211,7 @@ The version in this repository (V1.12) is enhanced based on the original one:
 * **Minimum width per area**: The key area, count area and KPM area each accept a minimum width (the taskbar width no longer jitters with the content, longer content expands automatically, 0 means fit the content). V1.12 fixes the "width setting has no effect" problem of earlier versions.
 * **DPI awareness**, with a tabbed options dialog.
 
-* Version: V1.12
+* Version: V1.13
 
 * Download url:
 
@@ -219,7 +219,7 @@ The version in this repository (V1.12) is enhanced based on the original one:
 
   Gitee: [KeyboardIndicator_V1.00 · zhongyang219/TrafficMonitorPlugins - Gitee.com](https://gitee.com/zhongyang219/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.00) (original)
 
-  This repository (V1.12, enhanced): [Release KeyboardIndicator_V1.12 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.12)
+  This repository (V1.13, enhanced): [Release KeyboardIndicator_V1.13 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/KeyboardIndicator_V1.13)
 
 ### Loudness Meter
 
