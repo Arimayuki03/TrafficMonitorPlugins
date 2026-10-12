@@ -19,7 +19,7 @@ namespace
     const ULONGLONG MIN_SAVE_INTERVAL_MS = 5000;
     //显示项目顺序的INI键，值形如"3,4,0,1,2,5"
     const wchar_t ITEM_ORDER_KEY[] = L"item_order";
-    //各显示项目自定义颜色的INI键(下标为DisplayItem)，值为十六进制RRGGBB，空表示跟随默认
+    //各显示项目自定义颜色的INI键(下标为DisplayItem)，值为十六进制RRGGBB(与设置界面显示的一致)，空表示跟随默认
     const wchar_t* ITEM_COLOR_KEYS[DISPLAY_ITEM_COUNT] = {
         L"item_color_caps_lock", L"item_color_num_lock", L"item_color_scroll_lock",
         L"item_color_key_count", L"item_color_kpm", L"item_color_pressed_key" };
@@ -205,15 +205,14 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     m_setting_data.kpm_reserved_width = kpm_width;
     //显示项顺序：必须是全部显示项目的一个排列，否则回退默认顺序
     {
-        const SettingData default_order;
         wchar_t order_buff[128] = {};
         int order[DISPLAY_ITEM_COUNT] = {};
         const bool ok = ReadProfileString(L"config", ITEM_ORDER_KEY, order_buff, _countof(order_buff), m_config_path.c_str())
             && ParseItemOrder(order_buff, order);
         for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
-            m_setting_data.item_order[i] = ok ? order[i] : default_order.item_order[i];
+            m_setting_data.item_order[i] = ok ? order[i] : default_setting.item_order[i];
     }
-    //各显示项自定义颜色：十六进制RRGGBB，空值或非法值一律回退为跟随默认颜色
+    //各显示项自定义颜色：十六进制RRGGBB(与设置界面的显示一致)，空值或非法值一律回退为跟随默认颜色
     for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
     {
         wchar_t color_buff[32] = {};
@@ -224,7 +223,10 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
         const bool negative = (color_buff[0] == L'-');
         unsigned long value = wcstoul(color_buff, &end, 16);
         if (!negative && end != color_buff && *end == L'\0' && value <= 0xFFFFFF)
-            m_setting_data.item_colors[i] = static_cast<COLORREF>(value);
+        {
+            //RRGGBB -> COLORREF(COLORREF的字节序是BBGGRR，直接用RGB宏拼装避免次序出错)
+            m_setting_data.item_colors[i] = RGB((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF);
+        }
     }
     //加载持久化的统计数据
     LoadStatsData();
@@ -261,12 +263,13 @@ void CDataManager::SaveConfig()
         }
         WritePrivateProfileStringW(L"config", ITEM_ORDER_KEY, order_text.c_str(), m_config_path.c_str());
     }
-    //各显示项自定义颜色：十六进制RRGGBB，跟随默认颜色时写空值
+    //各显示项自定义颜色：十六进制RRGGBB(与设置界面显示一致)，跟随默认颜色时写空值
     for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
     {
         wchar_t color_buff[16] = {};
-        if (m_setting_data.item_colors[i] != ITEM_COLOR_DEFAULT)
-            swprintf_s(color_buff, L"%06X", static_cast<unsigned>(m_setting_data.item_colors[i]) & 0xFFFFFFu);
+        const COLORREF color = m_setting_data.item_colors[i];
+        if (color != ITEM_COLOR_DEFAULT)
+            swprintf_s(color_buff, L"%02X%02X%02X", GetRValue(color), GetGValue(color), GetBValue(color));
         WritePrivateProfileStringW(L"config", ITEM_COLOR_KEYS[i], color_buff, m_config_path.c_str());
     }
     //保存统计数据

@@ -320,11 +320,11 @@ namespace
             return;
         const int dpi = ListDpi(pList);
         const int pad = 24;         //表头文字两侧余量，避免出现省略号
-        int t_color = MeasureTextWidth(pList, L"#FFFFFF") + pad;
+        const int t_color_text = MeasureTextWidth(pList, L"#FFFFFF");
         const int t_color_head = MeasureTextWidth(pList, g_data.StringRes(IDS_ORDER_COL_COLOR));
-        if (t_color_head + pad > t_color)
-            t_color = t_color_head + pad;
-        if (t_color <= 0)
+        int t_color = ((t_color_text > t_color_head) ? t_color_text : t_color_head) + pad;
+        //测量失败(无DC等)时按DPI兜底
+        if (t_color_text <= 0 && t_color_head <= 0)
             t_color = 76 * dpi / 96;
         const int avail = ListAvailWidth(pList, dpi);
         int t_item = avail - t_color;
@@ -655,10 +655,11 @@ BOOL COptionsDlg::OnNotify(WPARAM wParam, LPARAM lParam, LRESULT* pResult)
                 UpdateItemButtons();
                 return TRUE;
             }
-            //双击一行直接打开取色对话框
+            //双击一行直接打开取色对话框(在列表空白处双击时iItem为-1，此时不处理)
             if (header->code == NM_DBLCLK)
             {
-                OnItemSetColor();
+                if (((NMITEMACTIVATE*)lParam)->iItem >= 0)
+                    OnItemSetColor();
                 return TRUE;
             }
             //项目名一列用该项目的当前颜色绘制，直接看到配色效果
