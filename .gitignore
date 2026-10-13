@@ -356,3 +356,6 @@ MigrationBackup/
 
 # video2code working folder
 .v2c/
+
+# Mimosa 安全扫描插件的本地状态(finding-ledger / hook-state / 基线快照等)，属于工具缓存，不参与版本管理
+.mimosa/
