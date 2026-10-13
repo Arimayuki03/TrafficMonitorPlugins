@@ -44,6 +44,11 @@
 #define IDS_ORDER_HIDDEN_TAG            140
 #define IDS_COLOR_DEFAULT               141
 #define IDS_COLOR_DLG_TITLE             142
+#define IDS_COUNT_RANGE_TOTAL           143
+#define IDS_COUNT_RANGE_TODAY           144
+#define IDS_COUNT_RANGE_DAYS7           145
+#define IDS_COUNT_RANGE_DAYS30          146
+#define IDS_COUNT_RANGE_CUSTOM          147
 #define IDC_MAIN_TAB                    1015
 #define IDC_STATS_RANGE_COMBO           1016
 #define IDC_STATS_REFRESH_BUTTON        1017
@@ -55,6 +60,8 @@
 #define IDC_ITEM_ORDER_DOWN_BUTTON      1028
 #define IDC_ITEM_COLOR_BUTTON           1029
 #define IDC_ITEM_COLOR_RESET_BUTTON     1030
+#define IDC_COUNT_RANGE_COMBO           1031
+#define IDC_COUNT_DAYS_EDIT             1032
 #define IDC_EXPORT_CSV_BUTTON           1019
 #define IDC_KEYBOARD_MAP_CTRL           1020
 #define IDC_CHART_CTRL                  1021
@@ -78,9 +85,9 @@
 //
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        143
+#define _APS_NEXT_RESOURCE_VALUE        148
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1031
+#define _APS_NEXT_CONTROL_VALUE         1033
 #define _APS_NEXT_SYMED_VALUE           103
 #endif
 #endif

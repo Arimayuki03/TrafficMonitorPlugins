@@ -39,6 +39,24 @@ namespace
         return buff;
     }
 
+    //把yyyy-MM-dd换算成自1970-01-01起的天数(公历)，用于按自然日计算"近N天"。
+    //日期非法时返回0(不会与正常日期相等，调用方按"不在范围内"处理)
+    long long DateToDays(const std::wstring& date)
+    {
+        int year = 0, month = 0, day = 0;
+        if (swscanf_s(date.c_str(), L"%d-%d-%d", &year, &month, &day) != 3
+            || month < 1 || month > 12 || day < 1 || day > 31)
+            return 0;
+        //Howard Hinnant 的 days_from_civil 算法(与系统时区无关，仅按日期比较)
+        year -= (month <= 2) ? 1 : 0;
+        const long long era = (year >= 0 ? year : year - 399) / 400;
+        const unsigned year_of_era = static_cast<unsigned>(year - era * 400);
+        const unsigned day_of_year = (153u * static_cast<unsigned>(month + (month > 2 ? -3 : 9)) + 2) / 5
+            + static_cast<unsigned>(day) - 1;
+        const unsigned day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+        return era * 146097 + static_cast<long long>(day_of_era) - 719468;
+    }
+
     void WritePrivateProfileInt(const wchar_t* app_name, const wchar_t* key_name, int value, const wchar_t* file_path)
     {
         wchar_t buff[16];
@@ -188,6 +206,17 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     if (count_width > 300)
         count_width = 300;
     m_setting_data.key_count_reserved_width = count_width;
+    //累计计数显示的时间范围(CountRange)与自定义天数(1~90天，与90天历史窗口一致)
+    int count_range = GetPrivateProfileIntW(L"config", L"count_range", default_setting.count_range, m_config_path.c_str());
+    if (count_range < static_cast<int>(CountRange::Total) || count_range > static_cast<int>(CountRange::Custom))
+        count_range = default_setting.count_range;
+    m_setting_data.count_range = count_range;
+    int count_custom_days = GetPrivateProfileIntW(L"config", L"count_custom_days", default_setting.count_custom_days, m_config_path.c_str());
+    if (count_custom_days < 1)
+        count_custom_days = 1;
+    if (count_custom_days > MAX_HISTORY_DAYS)
+        count_custom_days = MAX_HISTORY_DAYS;
+    m_setting_data.count_custom_days = count_custom_days;
     //每日按键目标(0为不启用)，限制在0~1000000
     int daily_goal = GetPrivateProfileIntW(L"config", L"daily_goal", default_setting.daily_goal, m_config_path.c_str());
     if (daily_goal < 0)
@@ -247,6 +276,8 @@ void CDataManager::SaveConfig()
     WritePrivateProfileInt(L"config", L"enable_key_stats", m_setting_data.enable_key_stats ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_key_count", m_setting_data.show_key_count ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"key_count_reserved_width", m_setting_data.key_count_reserved_width, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"count_range", m_setting_data.count_range, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"count_custom_days", m_setting_data.count_custom_days, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"daily_goal", m_setting_data.daily_goal, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_kpm", m_setting_data.show_kpm ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"kpm_reserved_width", m_setting_data.kpm_reserved_width, m_config_path.c_str());
@@ -350,6 +381,39 @@ unsigned long long CDataManager::GetStatsTotal() const
 {
     std::lock_guard<std::mutex> lock(m_stats_mutex);
     return m_stats_total;
+}
+
+unsigned long long CDataManager::GetStatsTotalByRange(CountRange range, int custom_days) const
+{
+    //范围对应的天数：0表示全部
+    int days = 0;
+    switch (range)
+    {
+    case CountRange::Today:     days = 1; break;
+    case CountRange::Days7:     days = 7; break;
+    case CountRange::Days30:    days = 30; break;
+    case CountRange::Custom:    days = custom_days; break;
+    default:                    days = 0; break;    //Total(含非法配置)
+    }
+    if (days <= 0)
+        return GetStatsTotal();
+    //近N天 = 今日 + 最近N-1个自然日内的历史记录(含今日共N天)
+    if (days == 1)
+        return GetStatsToday();
+    std::lock_guard<std::mutex> lock(m_stats_mutex);
+    const long long today_days = DateToDays(GetTodayString());
+    unsigned long long total = m_stats_today;
+    //历史按日期升序存储，从最新往回累加；超出范围的更早记录直接结束
+    for (auto iter = m_history.rbegin(); iter != m_history.rend(); ++iter)
+    {
+        const long long diff = today_days - DateToDays(iter->date);
+        if (diff <= 0)
+            continue;               //同日或异常日期(晚于今日)不计入
+        if (diff >= days)
+            break;
+        total += iter->total;
+    }
+    return total;
 }
 
 unsigned long long CDataManager::GetStatsToday() const
@@ -675,18 +739,28 @@ std::vector<std::pair<std::wstring, unsigned long long>> CDataManager::GetStatsR
     if (range == StatsRange::Today)
         return GetStatsTodayDetail();
     std::map<std::wstring, unsigned long long> aggregated;
-    unsigned long long days = 0;
+    int days = 0;       //0表示全部(所有历史)
     switch (range)
     {
     case StatsRange::Days7: days = 7; break;
     case StatsRange::Days30: days = 30; break;
-    case StatsRange::All: days = MAX_HISTORY_DAYS + 1; break;   //全部=所有历史+当日
+    case StatsRange::All: days = 0; break;
     default: return GetStatsTodayDetail();
     }
     std::lock_guard<std::mutex> lock(m_stats_mutex);
-    //取最近的days个历史日(含今日)，历史按日期升序存储
-    for (auto iter = m_history.rbegin(); iter != m_history.rend() && days > 1; ++iter, --days)
+    //取最近N个自然日内的历史记录(含今日，按日期判断，无记录的日子不重复计入)；
+    //"全部"不加日期限制。历史按日期升序存储，从最新往回累加
+    const long long today_days = DateToDays(GetTodayString());
+    for (auto iter = m_history.rbegin(); iter != m_history.rend(); ++iter)
     {
+        if (days > 0)
+        {
+            const long long diff = today_days - DateToDays(iter->date);
+            if (diff <= 0)
+                continue;       //同日或异常日期(晚于今日)不计入
+            if (diff >= days)
+                break;          //更早的记录都在范围外
+        }
         for (const auto& kc : iter->key_counts)
         {
             if (kc.first >= 0 && kc.first < 256)

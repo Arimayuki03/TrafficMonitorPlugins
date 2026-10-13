@@ -18,6 +18,13 @@ namespace
     const int MAIN_TAB_DISPLAY = 0;
     const int MAIN_TAB_STATS = 1;
     const int MAIN_TAB_ITEMS = 2;
+    //累计计数的显示范围选项(顺序与CountRange枚举一致)
+    const UINT COUNT_RANGE_IDS[] = {
+        IDS_COUNT_RANGE_TOTAL, IDS_COUNT_RANGE_TODAY, IDS_COUNT_RANGE_DAYS7,
+        IDS_COUNT_RANGE_DAYS30, IDS_COUNT_RANGE_CUSTOM };
+    //自定义累计天数的允许范围(与90天历史窗口一致)
+    const int COUNT_CUSTOM_DAYS_MIN = 1;
+    const int COUNT_CUSTOM_DAYS_MAX = 90;
     //统计页内页签索引
     const int STATS_TAB_RANK = 0;
     const int STATS_TAB_HISTORY = 1;
@@ -494,6 +501,7 @@ BEGIN_MESSAGE_MAP(COptionsDlg, CDialog)
     ON_BN_CLICKED(IDC_ITEM_ORDER_DOWN_BUTTON, &COptionsDlg::OnItemOrderDown)
     ON_BN_CLICKED(IDC_ITEM_COLOR_BUTTON, &COptionsDlg::OnItemSetColor)
     ON_BN_CLICKED(IDC_ITEM_COLOR_RESET_BUTTON, &COptionsDlg::OnItemResetColor)
+    ON_CBN_SELCHANGE(IDC_COUNT_RANGE_COMBO, &COptionsDlg::OnCountRangeChanged)
 END_MESSAGE_MAP()
 
 
@@ -536,6 +544,18 @@ BOOL COptionsDlg::OnInitDialog()
         //KPM开关与宽度(此前漏了初始化，导致打开对话框永远是未勾选、确定即被写回false)
         pDisplay->CheckDlgButton(IDC_SHOW_KPM_CHECK, m_data.show_kpm);
         pDisplay->SetDlgItemInt(IDC_KPM_RESERVED_EDIT, m_data.kpm_reserved_width, TRUE);
+        //累计计数的显示范围与自定义天数
+        CComboBox* pRangeCombo = (CComboBox*)pDisplay->GetDlgItem(IDC_COUNT_RANGE_COMBO);
+        if (pRangeCombo != nullptr)
+        {
+            for (UINT string_id : COUNT_RANGE_IDS)
+                pRangeCombo->AddString(g_data.StringRes(string_id));
+            int sel = m_data.count_range;
+            if (sel < 0 || sel >= static_cast<int>(_countof(COUNT_RANGE_IDS)))
+                sel = static_cast<int>(CountRange::Total);
+            pRangeCombo->SetCurSel(sel);
+        }
+        pDisplay->SetDlgItemInt(IDC_COUNT_DAYS_EDIT, m_data.count_custom_days, TRUE);
     }
 
     //初始化"显示项"页：显示顺序与颜色列表
@@ -784,6 +804,7 @@ void COptionsDlg::ApplyStatsEnabled()
         CWnd* pCountWidth = pDisplay->GetDlgItem(IDC_KEY_COUNT_RESERVED_EDIT);
         CWnd* pShowKpm = pDisplay->GetDlgItem(IDC_SHOW_KPM_CHECK);
         CWnd* pKpmWidth = pDisplay->GetDlgItem(IDC_KPM_RESERVED_EDIT);
+        CWnd* pRangeCombo = pDisplay->GetDlgItem(IDC_COUNT_RANGE_COMBO);
         const BOOL stats_on = m_data.enable_key_stats;
         if (pShowCount != nullptr)
             pShowCount->EnableWindow(stats_on);
@@ -793,6 +814,10 @@ void COptionsDlg::ApplyStatsEnabled()
             pShowKpm->EnableWindow(stats_on);
         if (pKpmWidth != nullptr)
             pKpmWidth->EnableWindow(stats_on);
+        if (pRangeCombo != nullptr)
+            pRangeCombo->EnableWindow(stats_on);
+        //"自定义天数"还要看统计范围是否选了自定义
+        UpdateCountDaysEnabled();
     }
     if (pStats != nullptr)
     {
@@ -1014,6 +1039,55 @@ void COptionsDlg::ReadDisplayPageSettings()
     if (kpm_width > 300)
         kpm_width = 300;
     m_data.kpm_reserved_width = kpm_width;
+    //累计计数的显示范围与自定义天数
+    CComboBox* pRangeCombo = (CComboBox*)pDisplay->GetDlgItem(IDC_COUNT_RANGE_COMBO);
+    if (pRangeCombo != nullptr)
+    {
+        int sel = pRangeCombo->GetCurSel();
+        if (sel < 0 || sel >= static_cast<int>(_countof(COUNT_RANGE_IDS)))
+            sel = static_cast<int>(CountRange::Total);
+        m_data.count_range = sel;
+    }
+    int custom_days = pDisplay->GetDlgItemInt(IDC_COUNT_DAYS_EDIT, &success, TRUE);
+    if (!success)
+        custom_days = 7;
+    if (custom_days < COUNT_CUSTOM_DAYS_MIN)
+        custom_days = COUNT_CUSTOM_DAYS_MIN;
+    if (custom_days > COUNT_CUSTOM_DAYS_MAX)
+        custom_days = COUNT_CUSTOM_DAYS_MAX;
+    m_data.count_custom_days = custom_days;
+}
+
+void COptionsDlg::UpdateCountDaysEnabled()
+{
+    //自定义天数只在统计启用且"统计范围"选为"自定义天数"时可编辑
+    CWnd* pDisplay = m_display_page.get();
+    if (pDisplay == nullptr)
+        return;
+    CComboBox* pRangeCombo = (CComboBox*)pDisplay->GetDlgItem(IDC_COUNT_RANGE_COMBO);
+    CWnd* pDaysEdit = pDisplay->GetDlgItem(IDC_COUNT_DAYS_EDIT);
+    if (pDaysEdit == nullptr)
+        return;
+    const bool custom = (pRangeCombo != nullptr)
+        && (pRangeCombo->GetCurSel() == static_cast<int>(CountRange::Custom));
+    pDaysEdit->EnableWindow(m_data.enable_key_stats && custom);
+}
+
+void COptionsDlg::OnCountRangeChanged()
+{
+    //范围切换后立刻刷新"自定义天数"的可用状态(尚未点确定，颜色/宽度等仍按m_data旧值)
+    CWnd* pDisplay = m_display_page.get();
+    if (pDisplay == nullptr)
+        return;
+    CComboBox* pRangeCombo = (CComboBox*)pDisplay->GetDlgItem(IDC_COUNT_RANGE_COMBO);
+    if (pRangeCombo == nullptr)
+        return;
+    const int sel = pRangeCombo->GetCurSel();
+    CWnd* pDaysEdit = pDisplay->GetDlgItem(IDC_COUNT_DAYS_EDIT);
+    if (pDaysEdit != nullptr)
+    {
+        pDaysEdit->EnableWindow(m_data.enable_key_stats && sel == static_cast<int>(CountRange::Custom));
+    }
 }
 
 void COptionsDlg::RefreshItemOrderList()

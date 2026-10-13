@@ -27,6 +27,16 @@ enum class StatsRange
     SingleDay = 4   //指定单日(配合GetStatsRankByDay使用)
 };
 
+//任务栏"累计计数"显示的时间范围
+enum class CountRange
+{
+    Total = 0,      //累计(全部历史+今日)
+    Today = 1,      //今日
+    Days7 = 2,      //近7天(含今日)
+    Days30 = 3,     //近30天(含今日)
+    Custom = 4      //自定义天数(含今日，天数由count_custom_days指定)
+};
+
 //任务栏显示项目的标识。显示顺序与自定义颜色都以该标识为索引，
 //枚举值会写入INI持久化，新增项目只能追加在PressedKey之后
 enum class DisplayItem
@@ -62,6 +72,9 @@ struct SettingData
     int daily_goal{ 0 };                //每日按键数目标，达到后任务栏计数变绿色，0为不启用
     bool show_kpm{ false };             //是否在任务栏计数右侧显示当前KPM(仅在启用统计与计数显示时有效)
     int kpm_reserved_width{ 70 };       //KPM显示区最小宽度
+    //任务栏累计计数显示的时间范围(CountRange)与自定义天数(仅在Custom时生效，1~90天)
+    int count_range{ static_cast<int>(CountRange::Total) };
+    int count_custom_days{ 7 };
     //任务栏显示项自左向右的顺序(元素为DisplayItem)，下标0为最左。
     //默认顺序与历史版本的绘制顺序一致，保证升级后外观不变
     int item_order[DISPLAY_ITEM_COUNT]{
@@ -92,6 +105,8 @@ struct SettingData
             daily_goal = other.daily_goal;
             show_kpm = other.show_kpm;
             kpm_reserved_width = other.kpm_reserved_width;
+            count_range = other.count_range;
+            count_custom_days = other.count_custom_days;
             for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)
             {
                 item_order[i] = other.item_order[i];
@@ -130,6 +145,9 @@ public:
     unsigned long long GetStatsToday() const;
     //当日各按键明细(按键名->次数，按次数降序)，供设置界面表格显示
     std::vector<std::pair<std::wstring, unsigned long long>> GetStatsTodayDetail() const;
+    //按显示范围取累计按键次数(range=CountRange；custom_days仅在Custom时生效)。
+    //近N天=今日+最近N-1个自然日内的历史记录(按日期判断，无记录的日子不重复计入)
+    unsigned long long GetStatsTotalByRange(CountRange range, int custom_days) const;
     //历史每日记录(按日期升序，不含当日)，供设置界面表格显示
     std::vector<DailyKeyStat> GetStatsHistory() const;
     //按时间范围聚合的按键排行(按键名->次数，按次数降序)。

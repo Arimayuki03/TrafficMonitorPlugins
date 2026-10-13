@@ -53,6 +53,8 @@ private:
     void ApplyStatsEnabled();
     //读取"显示设置"页的全部设置到m_data
     void ReadDisplayPageSettings();
+    //按"统计范围"是否为"自定义天数"以及统计开关状态，更新自定义天数输入框的可用状态
+    void UpdateCountDaysEnabled();
     //按m_data刷新"显示项"页的列表(顺序、名称、隐藏标记与颜色)
     void RefreshItemOrderList();
     //取"显示项"列表当前选中的显示项目(未选中时返回DisplayItem::Count)
@@ -100,4 +102,5 @@ public:
     afx_msg void OnItemOrderDown();
     afx_msg void OnItemSetColor();
     afx_msg void OnItemResetColor();
+    afx_msg void OnCountRangeChanged();
 };

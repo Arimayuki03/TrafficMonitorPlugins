@@ -17,14 +17,17 @@ static bool GetPressedKeyText(std::wstring& text)
     return CKeyboardHook::Instance().GetDisplayText(text, g_data.m_setting_data.pressed_key_show_time);
 }
 
-//获取当前要显示的累计按键计数文本。统计未启用或不显示计数时返回false
+//获取当前要显示的累计按键计数文本(按"统计范围"设置取累计/今日/近N天)。
+//统计未启用或不显示计数时返回false
 static bool GetKeyCountText(std::wstring& text)
 {
-    if (!g_data.m_setting_data.enable_key_stats || !g_data.m_setting_data.show_key_count)
+    const SettingData& setting = g_data.m_setting_data;
+    if (!setting.enable_key_stats || !setting.show_key_count)
         return false;
-    unsigned long long total = g_data.GetStatsTotal();
+    const unsigned long long value = g_data.GetStatsTotalByRange(
+        static_cast<CountRange>(setting.count_range), setting.count_custom_days);
     wchar_t buff[24];
-    swprintf_s(buff, L"%llu", total);
+    swprintf_s(buff, L"%llu", value);
     text = buff;
     return true;
 }
@@ -354,8 +357,12 @@ void CKeyboardIndicatorItem::DrawItem(void* hDC, int x, int y, int w, int h, boo
     rect_indicator.bottom = rect_indicator.top + item_height;
     //按用户配置的顺序绘制各显示区域(顺序、最小宽度、自定义颜色都在计划里)
     const std::vector<FieldPlan> fields = PlanFields(pDC, ctx);
+    //每日目标只在计数显示"今日"时用于变色：其它范围(累计/近N天)与"每日"目标不对应，
+    //变色会让人误解成当天达标
     const int goal = g_data.m_setting_data.daily_goal;
-    const bool goal_reached = (goal > 0 && g_data.GetStatsToday() >= static_cast<unsigned long long>(goal));
+    const bool goal_reached = (goal > 0
+        && g_data.m_setting_data.count_range == static_cast<int>(CountRange::Today)
+        && g_data.GetStatsToday() >= static_cast<unsigned long long>(goal));
     for (const FieldPlan& field : fields)
     {
         //主程序分配的宽度可能小于测量值(配置刚改动、主程序尚未重算)，此时收缩到剩余区域，
