@@ -31,7 +31,7 @@
 
 | 插件 | 版本 | 说明 |
 |---|---|---|
-| KeyboardIndicator 键盘指示器 | V1.14 | 显示 Caps Lock / Num Lock / Scroll Lock 状态；本仓库增强版支持**实时按键显示**与**按键统计**，显示项顺序与颜色可自定义 |
+| KeyboardIndicator 键盘指示器 | V1.15 | 显示 Caps Lock / Num Lock / Scroll Lock 状态；本仓库增强版支持**实时按键显示**与**按键统计**，显示项顺序与颜色可自定义 |
 | HardwareMonitor 硬件监控 | V1.0.1 | 基于 LibreHardwareMonitor 显示 CPU / GPU / 内存 / 硬盘等传感器信息 |
 | Stock 股票 | V1.14 | 新浪接口实时股票行情 |
 | Weather / WeatherPro 天气 | V1.03 | 天气显示，支持中国城市手动选择 |
@@ -46,7 +46,7 @@
 
 本仓库是 [zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins) 的 fork，在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了系统性代码审查与修复，并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
 
-### KeyboardIndicator（键盘指示器）—— 功能增强 V1.14
+### KeyboardIndicator（键盘指示器）—— 功能增强 V1.15
 
 在原插件（用于显示 Caps Lock、Num Lock、Scroll Lock 状态）的基础上进行了功能增强：
 
