@@ -206,6 +206,11 @@ void CDataManager::LoadConfig(const std::wstring& config_dir)
     if (count_width > 300)
         count_width = 300;
     m_setting_data.key_count_reserved_width = count_width;
+    //统计页排行筛选范围只影响设置对话框，不参与任务栏累计计数。
+    int stats_range = GetPrivateProfileIntW(L"config", L"stats_range", default_setting.stats_range, m_config_path.c_str());
+    if (stats_range < static_cast<int>(StatsRange::Today) || stats_range > static_cast<int>(StatsRange::All))
+        stats_range = default_setting.stats_range;
+    m_setting_data.stats_range = stats_range;
     //累计计数显示的时间范围(CountRange)与自定义天数(1~90天，与90天历史窗口一致)
     int count_range = GetPrivateProfileIntW(L"config", L"count_range", default_setting.count_range, m_config_path.c_str());
     if (count_range < static_cast<int>(CountRange::Total) || count_range > static_cast<int>(CountRange::Custom))
@@ -276,6 +281,7 @@ void CDataManager::SaveConfig()
     WritePrivateProfileInt(L"config", L"enable_key_stats", m_setting_data.enable_key_stats ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"show_key_count", m_setting_data.show_key_count ? 1 : 0, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"key_count_reserved_width", m_setting_data.key_count_reserved_width, m_config_path.c_str());
+    WritePrivateProfileInt(L"config", L"stats_range", m_setting_data.stats_range, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"count_range", m_setting_data.count_range, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"count_custom_days", m_setting_data.count_custom_days, m_config_path.c_str());
     WritePrivateProfileInt(L"config", L"daily_goal", m_setting_data.daily_goal, m_config_path.c_str());

@@ -72,6 +72,8 @@ struct SettingData
     int daily_goal{ 0 };                //每日按键数目标，达到后任务栏计数变绿色，0为不启用
     bool show_kpm{ false };             //是否在任务栏计数右侧显示当前KPM(仅在启用统计与计数显示时有效)
     int kpm_reserved_width{ 70 };       //KPM显示区最小宽度
+    //统计页按键排行的筛选范围(仅影响设置对话框中的排行/键位覆盖图)
+    int stats_range{ static_cast<int>(StatsRange::Today) };
     //任务栏累计计数显示的时间范围(CountRange)与自定义天数(仅在Custom时生效，1~90天)
     int count_range{ static_cast<int>(CountRange::Total) };
     int count_custom_days{ 7 };
@@ -105,6 +107,7 @@ struct SettingData
             daily_goal = other.daily_goal;
             show_kpm = other.show_kpm;
             kpm_reserved_width = other.kpm_reserved_width;
+            stats_range = other.stats_range;
             count_range = other.count_range;
             count_custom_days = other.count_custom_days;
             for (int i = 0; i < DISPLAY_ITEM_COUNT; ++i)

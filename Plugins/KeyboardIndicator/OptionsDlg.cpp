@@ -592,7 +592,10 @@ BOOL COptionsDlg::OnInitDialog()
             pCombo->AddString(g_data.StringRes(IDS_RANGE_7DAYS));
             pCombo->AddString(g_data.StringRes(IDS_RANGE_30DAYS));
             pCombo->AddString(g_data.StringRes(IDS_RANGE_ALL));
-            pCombo->SetCurSel(0);
+            int sel = m_data.stats_range;
+            if (sel < 0 || sel >= static_cast<int>(_countof(RANGES)))
+                sel = static_cast<int>(StatsRange::Today);
+            pCombo->SetCurSel(sel);
         }
         //排行列表：排名/按键/次数/占比
         CListCtrl* pRankList = (CListCtrl*)pStats->GetDlgItem(IDC_RANK_LIST);
@@ -1243,11 +1246,20 @@ void COptionsDlg::OnItemResetColor()
 void COptionsDlg::OnOK()
 {
     ReadDisplayPageSettings();
-    //统计开关与每日目标在"按键统计"页
+    //统计开关、排行筛选范围与每日目标在"按键统计"页。
+    //排行筛选范围独立于显示设置页的累计计数范围/自定义天数。
     CWnd* pStats = m_stats_page.get();
     if (pStats != nullptr)
     {
         m_data.enable_key_stats = (pStats->IsDlgButtonChecked(IDC_ENABLE_KEY_STATS_CHECK) != 0);
+        CComboBox* pRangeCombo = (CComboBox*)pStats->GetDlgItem(IDC_STATS_RANGE_COMBO);
+        if (pRangeCombo != nullptr)
+        {
+            int stats_range = pRangeCombo->GetCurSel();
+            if (stats_range < 0 || stats_range >= static_cast<int>(_countof(RANGES)))
+                stats_range = static_cast<int>(StatsRange::Today);
+            m_data.stats_range = stats_range;
+        }
         BOOL success = FALSE;
         int daily_goal = pStats->GetDlgItemInt(IDC_DAILY_GOAL_EDIT, &success, TRUE);
         if (!success)
@@ -1303,6 +1315,14 @@ void COptionsDlg::OnStatsRangeChanged()
 {
     //筛选范围变化时退出单日模式并重刷排行
     m_single_day_mode = false;
+    CWnd* pStats = m_stats_page.get();
+    CComboBox* pCombo = (pStats != nullptr) ? (CComboBox*)pStats->GetDlgItem(IDC_STATS_RANGE_COMBO) : nullptr;
+    if (pCombo != nullptr)
+    {
+        const int sel = pCombo->GetCurSel();
+        if (sel >= 0 && sel < static_cast<int>(_countof(RANGES)))
+            m_data.stats_range = sel;
+    }
     UpdateRankList();
 }
 
