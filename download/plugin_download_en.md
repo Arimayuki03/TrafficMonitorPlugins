@@ -88,6 +88,22 @@ A plugin for displaying the battery level of your computer.
 
 ---
 
+### Peripheral battery plugin
+
+Displays the battery level of wireless peripherals in the taskbar. It does not require vendor drivers and reads battery data directly through HID / XInput.
+
+* Supports 2.4G receivers (AULA / Compx, ATK / VXE / VGN and others), Logitech HID++ devices (Unifying / Lightspeed / Bolt / Bluetooth) and XInput gamepads
+* Multiple device types can be shown at once, e.g. `Peripheral: 2.4G 100% | Logitech 90% | Gamepad Wired`
+* The options dialog provides device detection, a refresh interval and a standard HID battery fallback, with a DPI-aware layout
+
+* Version: V1.03
+
+* Download url:
+
+  GitHub: [Release ReceiverBattery_V1.03 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/ReceiverBattery_V1.03)
+
+---
+
 ### Stock plugin
 
 ![image-20250308114302152](images/stock.png)

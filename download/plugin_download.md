@@ -88,6 +88,22 @@
 
 ---
 
+### 外设电量插件
+
+在任务栏显示无线键鼠与手柄的电量，不依赖厂商驱动，直接通过 HID / XInput 读取。
+
+* 支持 2.4G 接收器（AULA / Compx、ATK / VXE / VGN 等）、罗技 HID++ 设备（Unifying / Lightspeed / Bolt / 蓝牙）与 XInput 手柄
+* 可同时显示多类设备，例如 `外设: 2.4G 100% | 罗技 90% | 手柄 有线`
+* 设置界面支持设备检测、刷新间隔与标准 HID 电量回退，并按显示器 DPI 自适应布局
+
+* 版本：V1.03
+
+* 下载链接：
+
+  GitHub: [Release ReceiverBattery_V1.03 · Arimayuki03/TrafficMonitorPlugins](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases/tag/ReceiverBattery_V1.03)
+
+---
+
 ### 股票插件
 
 ![stock](images/stock.png)

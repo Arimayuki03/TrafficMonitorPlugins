@@ -38,13 +38,14 @@
 | DateTime 时间日期 | V1.00 | 任务栏日期与时间 |
 | IpAddress IP 地址 | V1.00 | 显示本地 IP 地址 |
 | Battery 电池电量 | V1.03 | 电池电量、剩余电量与电压信息 |
+| ReceiverBattery 外设电量 | V1.03 | 通过 HID / XInput 读取 2.4G 接收器、罗技鼠标与 XInput 手柄电量，可同时显示多类设备 |
 | TextReader 文本阅读器 | V1.02 | 在任务栏阅读文本文件，支持章节、书签与自动翻页 |
 | LoudnessMeter 响度计 | V1.00 | 显示当前系统音量 |
 | PomodoroTimer 番茄钟、PowerMonPlugin 功率监控等 | — | 由第三方作者维护，见[下载页](./download/plugin_download.md) |
 
 ## ✨ 本仓库的更新
 
-本仓库是 [zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins) 的 fork，在保持原有功能的基础上，对**全部 10 个插件及 utilities 共享工具库**进行了系统性代码审查与修复，并对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强。各插件均有改动，并非与上游完全一致。
+本仓库是 [zhongyang219/TrafficMonitorPlugins](https://github.com/zhongyang219/TrafficMonitorPlugins) 的 fork，在保持原有功能的基础上，对**上游全部插件及 utilities 共享工具库**进行了系统性代码审查与修复，对 **KeyboardIndicator（键盘指示器）** 插件做了较大的功能增强，并新增了 **ReceiverBattery（外设电量）** 插件。各插件均有改动，并非与上游完全一致。
 
 ### KeyboardIndicator（键盘指示器）—— 功能增强 V1.16
 
@@ -67,9 +68,22 @@
 - **DPI 自适应**：绘制与文本测量按绘图 DC 的实际 DPI 自适应，修复高 DPI 屏幕下的显示偏差。
 - **设置界面优化**：新增上述功能对应的设置项（显示开关、松开后显示时长、区域宽度、顺序与颜色等），并优化了设置对话框布局。
 
+### ReceiverBattery（外设电量）—— 新增插件 V1.03
+
+新增的外设电量插件，不依赖厂商驱动，直接通过 HID / XInput 读取无线键鼠与手柄的电量，并显示在任务栏：
+
+- **2.4G 接收器**：支持 AULA / Compx、ATK / VXE / VGN 等常见 2.4G 键鼠接收器，使用厂商私有 HID 报告读取电量；同时提供标准 HID 电量查询作为通用回退。
+- **罗技设备**：支持 HID++ 2.0 / 1.0（Unifying / Lightspeed / Bolt / 蓝牙），优先使用 USB 接收器；仅提供电压的设备按锂电池放电曲线换算百分比。
+- **XInput 手柄**：动态加载 `xinput1_4` / `xinput1_3` / `xinput9_1_0`；无线手柄按电池档位换算百分比，有线手柄显示「有线」而不是伪造数值。
+- **多设备同显**：可在设置中同时勾选 2.4G / 罗技 / 手柄，在一个任务栏项目中用 `|` 分隔显示，例如 `外设: 2.4G 100% | 罗技 90% | 手柄 有线`；鼠标提示中同时列出三类设备的当前电量。
+- **检测与设置**：设置界面显示当前检测到的设备并支持重新检测，刷新间隔 3~300 秒，可关闭标准 HID 电量回退；界面按显示器 DPI 动态布局，支持 100%~200% 缩放与多显示器不同 DPI。
+- **稳定性**：查询线程延迟到主程序启动完成后的 `DataRequired` 才启动，并先等待 500ms；沿用主程序的文本绘制，不返回自定义图标；配置文件为 `ReceiverBattery.dll.ini`。
+
+详细说明见 [Plugins/ReceiverBattery/README.md](Plugins/ReceiverBattery/README.md)。
+
 ### 全部插件及共享库 —— 代码审查修复（FIX-001~114）
 
-基于对全部 10 个插件及 utilities 共享工具库（约 1.6 万行 C++）的五轮代码审查与交叉验证，按 **P0（崩溃/数据损坏）→ P1（功能错误/资源泄漏/数据竞争）→ P2（边缘情况/代码质量）** 三级共修复 200 余项问题，完整清单见[修复文档](修复文档.md)。主要包括：
+基于对上游全部插件及 utilities 共享工具库（约 1.6 万行 C++）的多轮代码审查与交叉验证，按 **P0（崩溃/数据损坏）→ P1（功能错误/资源泄漏/数据竞争）→ P2（边缘情况/代码质量）** 三级共修复 200 余项问题，完整清单见[修复文档](修复文档.md)。主要包括：
 
 - **崩溃类（P0）**：DateTime 采样文本悬空指针、TextReader HTML 解析下溢越界、base64 误判普通文本与越界读、IniHelper 单引号值堆破坏、Stock 主窗口点击崩溃、HardwareMonitor 老宿主通知崩溃与跨线程重建竞态等。
 - **死锁与数据竞争（P1）**：为 TextReader、Stock、Weather、HardwareMonitor 等的后台线程共享数据补齐互斥锁；修复 Stock 持锁 `SendMessage` 与 UI 线程互等死锁；tooltip / 数值文本跨线程写读全部改为“锁内拷贝副本”或值快照。
@@ -80,9 +94,10 @@
 
 ### ✅ 验证
 
-- 本机 VS2022 Release|x64 全解决方案 Rebuild **12/12 项目零错误**（含 C++/CLI 的 HardwareMonitor），编译警告与整改前基线完全一致（零新增）。
+- VS2022 Release|x64 全解决方案 Rebuild **13/13 项目零错误**（含 C++/CLI 的 HardwareMonitor 与新增的 ReceiverBattery）。
 - 通过 GitHub Actions CI（windows-2022）完成全部插件编译验证，构建产物见 [Releases](https://github.com/Arimayuki03/TrafficMonitorPlugins/releases)。
 - base64 / IniHelper 等关键模块以真实源码编译执行 **58/58** 行为测试用例。
+- ReceiverBattery 已在 AULA F99 Pro 2.4G 接收器、罗技 G Pro Wireless / Signature Plus M750、北通阿修罗 A1T2 手柄上完成实机验证；Release|x64 产物文件版本为 1.0.3.0。
 - 键盘指示器显示宽度/顺序/颜色：直接加载插件 DLL 用内存 DC 调用 `GetItemWidthEx` / `DrawItem`，扫描绘制结果的边框像素做行为级实测，并用修复前（HEAD）与修复后的 DLL 对照验证（计数宽度 60：修复前框宽 48 px 不变 → 修复后 90 px；KPM 宽度 200：39 px → 300 px），同时验证顺序调整、每个显示项取色与非法配置回退。
 
 ## 🔧 编译
